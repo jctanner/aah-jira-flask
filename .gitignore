@@ -1,0 +1,8 @@
+.data/*
+config.sh
+demo_cache.sqlite
+jira.db
+*.swp
+__pycache__
+*.bak
+jira.db-journal
