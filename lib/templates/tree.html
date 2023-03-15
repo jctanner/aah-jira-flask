@@ -1,0 +1,188 @@
+<!DOCTYPE HTML>
+<html>
+
+    <head>
+        <title>jira tickets</title>
+		<script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+		<script src="https://cdn.jsdelivr.net/npm/popper.js@1.14.7/dist/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+		<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+        <!--
+        <link rel="stylesheet" href="//cdn.datatables.net/1.11.5/css/jquery.dataTables.min.css" crossorigin="anonymous"></link>
+        <script src="//cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
+        -->
+
+		<script>
+
+            var columns = [
+                "fields.created",
+                "fields.updated",
+                "fields.reporter.name",
+                "fields.assignee.name",
+                "fields.issuetype.name",
+                "fields.status.name",
+                "fields.summary",
+            ];
+
+            let drawn_nodes = [];
+
+            // get a nested object property by a path ...
+            // https://stackoverflow.com/a/6491621
+            Object.byString = function(o, s) {
+                //console.log('bystring', o, s);
+                if (o === null) {
+                    return;
+                };
+
+                s = s.replace(/\[(\w+)\]/g, '.$1'); // convert indexes to properties
+                s = s.replace(/^\./, '');           // strip a leading dot
+                var a = s.split('.');
+                //console.log('a', a);
+                for (var i = 0, n = a.length; i < n; ++i) {
+                    var k = a[i];
+                    //console.log('k', k);
+                    if (o !== null && k in o) {
+                        o = o[k];
+                    } else {
+                        return;
+                    }
+                }
+                return o;
+            }
+
+            function dateSplit(ts) {
+                console.log('splitting', ts);
+                const parts = ts.split('T');
+                return parts[0];
+            };
+
+            function getNodeByKey(nodes, key) {
+                let this_node = null;
+                for (let k in nodes) {
+                    if (k === key) {
+                        //console.log(k, "equals", key);
+                        this_node = nodes[k];
+                        break;
+                    }
+                }
+                /*
+                if (this_node === null) {
+                    console.log("could not find", key);
+                }
+                */
+                return this_node;
+            };
+                
+
+            function childrenToDivs(nodes, node, level) {
+                //console.log("node", node, "level", level);
+
+                /*
+                if (drawn_nodes.includes(node.key)) {
+                    return "";
+                }
+                */
+
+                if (level >= 10) {
+                    return "";
+                }
+
+                let newHTML = "";
+                for (let ckey in node.children) {
+
+                    child = node.children[ckey]
+                    //console.log("child_key", child);
+                    child_node = getNodeByKey(nodes, child);
+                    //console.log("child_node", child_node);
+
+                    /*
+                    if (drawn_nodes.includes(child)) {
+                        continue;
+                    }
+                    */
+
+                    let summary = "";
+                    if (child_node !== null) {
+                        summary = child_node.summary;
+                    }
+
+                    padding = level * 50
+                    newHTML += `<div style="padding-left: ${padding}px;">${child} ${summary}</div>\n`;
+
+                    //drawn_nodes.push(child);
+
+                    // recursively append children ...
+                    if (child_node !== null && child_node.children.length > 0) {
+                        newHTML += childrenToDivs(nodes, child_node, level + 1);
+                    }
+
+                    drawn_nodes.push(child);
+
+                }
+                return newHTML;
+            }
+
+            function onLoad() {
+                fetch("/api/tickets_tree", {
+                    method: "GET",
+                    headers: {'Content-Type': 'application/json'}, 
+                }).then(res => res.json()).then(res => {
+
+                    console.log("Request complete! response:", res);
+                    var newHTML = '';
+                    for (let k in res) {
+                        //console.log(k);
+                        //console.log(res[k]);
+                        node = res[k];
+                        //console.log(node);
+
+                        if (node.status === "Closed") {
+                            continue
+                        }
+
+                        let kwords = k.split("-");
+                        if (kwords[0] !== "AAH" && node.children.length === 0) {
+                            continue
+                        }
+                        if (node.parents.length > 0) {
+                            continue
+                        }
+
+                        //drawn_nodes.push(k);
+
+                        newHTML += "<div>";
+                        newHTML += k + " " + res[k].summary;
+
+                        newHTML += childrenToDivs(res, res[k], 1);
+
+                        newHTML += "</div>";
+                        newHTML += "<hr>";
+
+                    }
+
+                    console.log("done building tree");
+                    document.getElementById('tree').innerHTML = newHTML;
+
+				});
+			};
+
+		</script>
+
+
+    </head>
+
+    <body onload="onLoad();" style="width:100%">
+
+        <!-- NAVBAR -->
+        <div>
+            <div><a href="/ui">list</a></div>
+            <div><a href="/ui/tree">tree</a></div>
+        </div>
+
+        <div id="tree"></div>
+
+    </body>
+
+</html>
+
