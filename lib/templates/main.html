@@ -43,13 +43,14 @@
             };
 
 			var columns = [
-                "fields.created",
-                "fields.updated",
-                "fields.reporter.name",
-                "fields.assignee.name",
-                "fields.issuetype.name",
-                "fields.status.name",
-                "fields.summary",
+                "created",
+                "updated",
+                "created_by",
+                "assigned_to",
+                "type",
+                "priority",
+                "state",
+                "summary",
             ];
 
 			function onLoad() {
@@ -104,6 +105,7 @@
 					<th>reporter</th>
 					<th>assignee</th>
 					<th>type</th>
+					<th>priority</th>
 					<th>status</th>
 					<th>summary</th>
 				</thead>

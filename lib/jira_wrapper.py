@@ -76,6 +76,9 @@ class JiraWrapper:
             token_auth=jira_token
         )
 
+        # validate auth ...
+        self.jira_client.myself()
+
         logger.info('scrape jira issues')
         self.scrape_jira_issues()
 
@@ -110,6 +113,7 @@ class JiraWrapper:
 
         dataset = [(x[0],x[1]) for x in rows if x[0]]
         dataset = [(json.loads(x[0]), x[1]) for x in dataset]
+        dataset = [x for x in dataset if x[1] is not None]
         dataset = [(x[0], json.loads(x[1])) for x in dataset]
         dataset = [(x[0], json.loads(x[1])) for x in dataset]
         for idx,x in enumerate(dataset):
@@ -121,9 +125,17 @@ class JiraWrapper:
 
         if not os.path.exists(self.cachedir):
             os.makedirs(self.cachedir)
+        '''
         jfile = os.path.join(self.cachedir, 'jiras.json')
         with open(jfile, 'w') as f:
             f.write(json.dumps(dataset, indent=2))
+        '''
+        for issue in dataset:
+            fn = os.path.join(self.cachedir, issue['key'] + '.json')
+            with open(fn, 'w') as f:
+                f.write(json.dumps(issue, indent=2))
+
+        #import epdb; epdb.st()
 
     def store_issue_column(self, project, number, colname, value):
         cursor = self.db_connection.cursor()
@@ -218,8 +230,17 @@ class JiraWrapper:
                 h_issue = self.jira_client.issue(issue_key, expand='changelog')
                 return h_issue
             except requests.exceptions.JSONDecodeError as e:
+                #logger.error(e)
+                #import epdb; epdb.st()
+                #time.sleep(.5)
+                return self.jira_client.issue(issue_key)
+
+            except requests.exceptions.ChunkedEncodingError as e:
                 logger.error(e)
-                time.sleep(.5)
+                time.sleep(2)
+
+            if count > 10:
+                return None
 
     def get_issue(self, issue_key):
 
@@ -230,10 +251,20 @@ class JiraWrapper:
             try:
                 issue = self.jira_client.issue(issue_key)
                 break
+
+            except jira.exceptions.JIRAError as e:
+                logger.error(e)
+                break
+
+            except requests.exceptions.ChunkedEncodingError as e:
+                logger.error(e)
+                time.sleep(2)
+
             except Exception as e:
 
                 if hasattr(e, 'msg') and 'unterminated string' in e.msg.lower():
                     logger.error(e.msg)
+                    return None
                     time.sleep(.5)
                     continue
 
@@ -253,6 +284,8 @@ class JiraWrapper:
                 import epdb; epdb.st()
                 print(e)
 
+            #import epdb; epdb.st()
+
         return issue
 
     def process_issue_history(self, project, number, issue):
@@ -269,7 +302,18 @@ class JiraWrapper:
         if old_updated != updated or not self.get_issue_column(project, number, 'history'):
             #logger.info(f'get history for {issue.key}')
             #h_issue = self.jira_client.issue(issue.key, expand='changelog')
-            h_issue = self.get_issue_with_history(issue.key)
+
+            try:
+                h_issue = self.get_issue_with_history(issue.key)
+            except requests.exceptions.JSONDecodeError:
+                return
+            except jira.exceptions.JIRAError:
+                return
+
+            # the api has return size limits and many AAP tickets are too big
+            if not hasattr(h_issue, 'changelog'):
+                return
+
             raw_history = []
             histories = h_issue.changelog.histories[:]
             for idh, history in enumerate(histories):
@@ -425,7 +469,18 @@ class JiraWrapper:
 
 
 def main():
-    jw = JiraWrapper()
+    projects = [
+        'AAH',
+        'ANSTRAT',
+        'AAPRFE',
+        'AAP',
+        'AAPBUILD',
+        'PARTNERENG',
+        'PLMCORE',
+    ]
+    for project in projects:
+        jw = JiraWrapper(project=project)
+    logger.info('done scraping!')
 
 
 if __name__ == "__main__":

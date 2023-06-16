@@ -1,16 +1,36 @@
 #!/usr/bin/env python3
 
+import atexit
 import copy
+import glob
 import json
+
+
+from logzero import logger
+
+
+from database import JiraDatabaseWrapper
 
 
 CLOSED = ['done', 'obsolete']
 
 
+'''
 datafile = '.data/jiras.json'
 with open(datafile, 'r') as f:
     all_jiras = json.loads(f.read())
     jiras = [x for x in all_jiras if x['fields']['status']['name'].lower() != 'closed']
+'''
+
+'''
+datafiles = glob.glob('.data/AAH-*.json')
+all_jiras = []
+for df in datafiles:
+    logger.info(f'loading {df}')
+    with open(df, 'r') as f:
+        all_jiras.append(json.loads(f.read()))
+jiras = [x for x in all_jiras if x['fields']['status']['name'].lower() != 'closed']
+'''
 
 
 def sort_issue_keys(keys):
@@ -132,6 +152,7 @@ def tickets_to_nodes(tickets):
     # make nodes
     nodes = []
     for ticket in tickets:
+        logger.info(f"make node for {ticket['key']}")
         nodes.append(TicketNode(ticket))
 
     '''
@@ -185,7 +206,38 @@ def tickets_to_nodes(tickets):
 
 
 def main():
+
+    jdbw = JiraDatabaseWrapper()
+    conn = jdbw.get_connection()
+    atexit.register(conn.close)
+
+    with conn.cursor() as cur:
+        cur.execute(f"""
+            SELECT
+                DISTINCT(
+                    rel.parent,
+                    rel.child,
+                    ji.type,
+                    ji.summary
+                )
+            FROM
+                jira_issue_relationships rel
+            LEFT JOIN
+                jira_issues ji on ji.key = rel.child
+        """)
+        results = cur.fetchall()
+        for row in results:
+            print(row)
+            parent = row[0][0]
+            child = row[0][1]
+            child_type = row[0][2]
+            child_summary = row[0][3]
+            #import epdb; epdb.st()
+
+
+    import epdb; epdb.st()
     nodes = tickets_to_nodes(all_jiras)
+    import epdb; epdb.st()
 
 
 if __name__ == '__main__':

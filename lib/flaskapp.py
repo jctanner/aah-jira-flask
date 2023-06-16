@@ -1,25 +1,42 @@
 #!/usr/bin/env python3
 
+import atexit
 import copy
+import glob
 import json
+import os
 
 from flask import Flask
 from flask import jsonify
 from flask import request
 from flask import redirect
 from flask import render_template
+from flask import send_file
+
+from pprint import pprint
+from logzero import logger
 
 # from nodes import TicketNode
 from nodes import tickets_to_nodes
+from database import JiraDatabaseWrapper
+
+jdbw = JiraDatabaseWrapper()
+conn = jdbw.get_connection()
+atexit.register(conn.close)
 
 
 CLOSED = ['done', 'obsolete']
 
 
-datafile = '.data/jiras.json'
-with open(datafile, 'r') as f:
-    all_jiras = json.loads(f.read())
-    jiras = [x for x in all_jiras if x['fields']['status']['name'].lower() != 'closed']
+'''
+datafiles = glob.glob('.data/AAH-*.json')
+all_jiras = []
+for df in datafiles:
+    logger.info(f'loading {df}')
+    with open(df, 'r') as f:
+        all_jiras.append(json.loads(f.read()))
+jiras = [x for x in all_jiras if x['fields']['status']['name'].lower() != 'closed']
+'''
 
 
 app = Flask(__name__)
@@ -28,67 +45,6 @@ app = Flask(__name__)
 def sort_issue_keys(keys):
     keys = sorted(set(keys))
     return sorted(keys, key=lambda x: [x.split('-')[0], int(x.split('-')[1])])
-
-
-'''
-class TicketNode:
-    """Graph node for ticket relationships"""
-
-    _ticket = None
-    key = None
-    parents = None
-    children = None
-    field_parent = None
-
-    def __init__(self, ticket):
-        self._ticket = ticket
-        self.key = ticket['key']
-        self.parents = []
-        self.children = []
-
-    @property
-    def ticket(self):
-        return self._ticket
-
-    def to_json(self):
-        return {
-            'key': self.key,
-            #'ticket': self.ticket,
-            'summary': self.ticket['fields']['summary'],
-            'status': self.ticket['fields']['status']['name'],
-            'parents': sort_issue_keys(self.parents),
-            'children': sort_issue_keys(self.children),
-            'field_parent': self.field_parent
-        }
-'''
-
-
-def parent_or_child(link_type, link):
-    # name: Blocks
-    # inward: is blocked by
-    # outward: blocks
-
-    #print(link_type)
-
-    if link_type['name'] == 'Blocks':
-        #return 'children'
-        #return 'parents'
-
-        if 'outwardIssue' in link and link_type['outward'] == 'blocks':
-            #return 'children'
-            return 'parents'
-
-        if 'inwardIssue' in link and link_type['inward'] == 'is blocked by':
-            #return 'parents'
-            return 'children'
-
-    #elif link_type['name'] == 'Documents':
-    #    return 'parents'
-
-    #elif link_type['name'] == 'Related':
-    #    return 'parents'
-
-    return None
 
 
 @app.route('/')
@@ -108,7 +64,24 @@ def ui_tree():
 
 @app.route('/api/tickets')
 def tickets():
-    filtered = [x for x in jiras if x['fields']['status']['name'].lower() not in CLOSED]
+    #filtered = [x for x in jiras if x['fields']['status']['name'].lower() not in CLOSED]
+
+    cols = ['key', 'created', 'updated', 'created_by', 'assigned_to', 'type', 'priority', 'state', 'summary']
+
+    WHERE = "WHERE project = 'AAH' AND state != 'Closed'"
+
+    filtered = []
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT {','.join(cols)} FROM jira_issues {WHERE}")
+        results = cur.fetchall()
+        for row in results:
+            ds = {}
+            for idc,colname in enumerate(cols):
+                ds[colname] = row[idc]
+                if colname in ['created', 'updated']:
+                    ds[colname] = row[idc].isoformat().split('.')[0]
+            filtered.append(ds)
+
     return jsonify(filtered)
 
 
@@ -116,60 +89,86 @@ def tickets():
 @app.route('/api/tickets_tree/')
 def tickets_tree():
 
-    # make nodes
-    nodes = tickets_to_nodes(all_jiras)
+    issue_keys = {}
+    nodes = []
 
-    '''
-    # bidirectional link
+    with conn.cursor() as cur:
+
+        cur.execute('SELECT key,type,state,summary FROM jira_issues')
+        results = cur.fetchall()
+        for row in results:
+            issue_keys[row[0]] = {
+                'key': row[0],
+                'type': row[1],
+                'state': row[2],
+                'summary': row[3],
+            }
+
+        cur.execute(f"""
+            SELECT
+                DISTINCT(
+                    rel.parent,
+                    rel.child,
+                    ci.type,
+                    ci.state,
+                    ci.summary,
+                    pi.type,
+                    pi.state,
+                    pi.summary
+                )
+            FROM
+                jira_issue_relationships rel
+            LEFT JOIN
+                jira_issues ci on ci.key = rel.child
+            LEFT JOIN
+                jira_issues pi on pi.key = rel.parent
+        """)
+        results = cur.fetchall()
+        for row in results:
+            # print(row)
+            parent = row[0][0]
+            child = row[0][1]
+            child_type = row[0][2]
+            child_status = row[0][3]
+            child_summary = row[0][4]
+            parent_type = row[0][5]
+            parent_status = row[0][6]
+            parent_summary = row[0][7]
+            nodes.append({
+                'parent': parent,
+                'parent_type': parent_type,
+                'parent_status': parent_status,
+                'parent_summary': parent_summary,
+                'child': child,
+                'child_type': child_type,
+                'child_status': child_status,
+                'child_summary': child_summary,
+            })
+
+    imap = {}
     for node in nodes:
-        if node.children:
-            for child_key in node.children:
-                for node2 in nodes:
-                    if node2.key == child_key:
-                        if node2.field_parent is not None:
-                            continue
-                        node2.parents.append(node.key)
-        if node.parents:
-            for parent_key in node.parents:
-                for node2 in nodes:
-                    if node2.key == parent_key:
-                        node2.children.append(node.key)
-    '''
+        if node['child'] not in imap:
+            imap[node['child']] = {
+                'key': node['child'],
+                'type': node['child_type'],
+                'status': node['child_status'],
+                'summary': node['child_summary'],
+                'parent_key': node['parent']
+            }
 
-    '''
-    for node in nodes:
-        if node.field_parent is None:
-            continue
-        parent_key = node.field_parent
-        for node2 in nodes:
-            if node2.key == parent_key:
-                node2.children.append(node.key)
-    '''
+    for ik,idata in issue_keys.items():
+        if ik not in imap:
+            imap[ik] = {
+                'key': ik,
+                'type': idata['type'],
+                'status': idata['state'],
+                'summary': idata['summary'],
+                'parent_key': None,
+            }
+        elif imap[ik]['summary'] is None:
+            imap[ik]['summary'] = idata['summary']
 
-    # verify all children and parents are found ...
-    '''
-    keys = [x.key for x in nodes]
-    for node in nodes:
-        for child in node.children:
-            assert child in keys
-        for parent in node.parents:
-            assert parent in keys
-    '''
-
-    nodes = sorted(nodes, key=lambda x: int(x.key.split('-')[1]), reverse=True)
-    node_map = dict((x.key, x.to_json()) for x in nodes)
-
-    print(request.args)
-    if 'filter' in request.args:
-        key = request.args['filter']
-        print(f'FILTER ON: {key}')
-        node_map_2 = copy.deepcopy(node_map)
-        for k,v in node_map_2.items():
-            if key not in k:
-                node_map.pop(k, None)
-        print(f'filtered count: {len(list(node_map.keys()))}')
-
-    return jsonify(node_map)
+    return jsonify(imap)
 
 
 if __name__ == '__main__':
