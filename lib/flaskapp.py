@@ -106,16 +106,14 @@ def tickets_tree():
 
         cur.execute(f"""
             SELECT
-                DISTINCT(
-                    rel.parent,
-                    rel.child,
-                    ci.type,
-                    ci.state,
-                    ci.summary,
-                    pi.type,
-                    pi.state,
-                    pi.summary
-                )
+                rel.parent,
+                rel.child,
+                ci.type,
+                ci.state,
+                ci.summary,
+                pi.type,
+                pi.state,
+                pi.summary
             FROM
                 jira_issue_relationships rel
             LEFT JOIN
@@ -123,17 +121,18 @@ def tickets_tree():
             LEFT JOIN
                 jira_issues pi on pi.key = rel.parent
         """)
-        results = cur.fetchall()
-        for row in results:
-            # print(row)
-            parent = row[0][0]
-            child = row[0][1]
-            child_type = row[0][2]
-            child_status = row[0][3]
-            child_summary = row[0][4]
-            parent_type = row[0][5]
-            parent_status = row[0][6]
-            parent_summary = row[0][7]
+        rows = cur.fetchall()
+        print(f'TOTAL RELS {len(rows)}')
+        for row in rows:
+            print(row)
+            parent = row[0]
+            child = row[1]
+            child_type = row[2]
+            child_status = row[3]
+            child_summary = row[4]
+            parent_type = row[5]
+            parent_status = row[6]
+            parent_summary = row[7]
             nodes.append({
                 'parent': parent,
                 'parent_type': parent_type,
@@ -146,7 +145,30 @@ def tickets_tree():
             })
 
     imap = {}
+
+    '''
+    for ik,idata in issue_keys.items():
+        if ik is None:
+            continue
+        if not ik.startswith('AAH-'):
+            continue
+        if ik not in imap:
+            imap[ik] = {
+                'key': ik,
+                'type': idata['type'],
+                'status': idata['state'],
+                'summary': idata['summary'],
+                'parent_key': None,
+            }
+        elif imap[ik]['summary'] is None:
+            imap[ik]['summary'] = idata['summary']
+    '''
+
     for node in nodes:
+        #if node['child'] and not node['child'].startswith('AAH-'):
+        #    continue
+        #if node['parent'] and not node['parent'].startswith('AAH-'):
+        #    continue
         if node['child'] not in imap:
             imap[node['child']] = {
                 'key': node['child'],
@@ -157,6 +179,8 @@ def tickets_tree():
             }
 
     for ik,idata in issue_keys.items():
+        if ik is None:
+            continue
         if ik not in imap:
             imap[ik] = {
                 'key': ik,

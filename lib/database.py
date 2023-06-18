@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
 import copy
+import datetime
 import glob
 import json
 import docker
+import os
 import psycopg
 
 from logzero import logger
@@ -11,6 +13,8 @@ from logzero import logger
 
 ISSUE_SCHEMA = '''
 CREATE TABLE jira_issues (
+  is_valid BOOLEAN,
+  datafile TEXT,
   url VARCHAR(255),
   type VARCHAR(50),
   summary VARCHAR(255),
@@ -21,24 +25,29 @@ CREATE TABLE jira_issues (
   key VARCHAR(50),
   created_by VARCHAR(50),
   assigned_to VARCHAR(50),
+  fetched TIMESTAMP,
   created TIMESTAMP,
   updated TIMESTAMP,
   state VARCHAR(50),
   priority VARCHAR(50),
   data JSONB,
-  history JSONB
+  history JSONB,
+  CONSTRAINT unique_project_number UNIQUE (project, number)
 );
 '''
 
 ISSUE_RELATIONSHIP_SCHEMA = '''
 CREATE TABLE jira_issue_relationships (
   parent VARCHAR(50),
-  child VARCHAR(50)
+  child VARCHAR(50),
+  CONSTRAINT unique_parent_child_relationship UNIQUE (parent, child)
 );
 '''
 
 ISSUE_INSERT_QUERY = """
     INSERT INTO jira_issues (
+        datafile,
+        fetched,
         url,
         id,
         project,
@@ -57,12 +66,11 @@ ISSUE_INSERT_QUERY = """
         history
     )
     VALUES (
-        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
     );
 """
 
 PARENT_FIELDS = ['customfield_12313140', 'customfield_12318341.key']
-
 
 
 class JiraDatabaseWrapper:
@@ -137,111 +145,6 @@ class JiraDatabaseWrapper:
             cur.execute(ISSUE_SCHEMA)
             cur.execute(ISSUE_RELATIONSHIP_SCHEMA)
             conn.commit()
-
-        # iterate and load each issue 
-        ifiles = glob.glob('.data/*.json')
-        total = len(ifiles)
-        for icount,ifile in enumerate(ifiles):
-
-            with open(ifile, 'r') as f:
-                idata = json.loads(f.read())
-
-            logger.info(f"insert {total}|{icount} {idata['key']}")
-
-            history = copy.deepcopy(idata['history'])
-            idata.pop('history', None)
-
-            assignee = None
-            if idata['fields']['assignee']:
-                assignee = idata['fields']['assignee']['name']
-
-            with conn.cursor() as cur:
-                cur.execute(
-                    ISSUE_INSERT_QUERY,
-                    (
-                        idata['self'],
-                        idata['id'],
-                        idata['key'].split('-')[0],
-                        int(idata['key'].split('-')[-1]),
-                        idata['key'],
-                        idata['fields']['issuetype']['name'],
-                        idata['fields']['summary'],
-                        idata['fields']['description'] or '',
-                        idata['fields']['creator']['name'],
-                        assignee,
-                        idata['fields']['created'],
-                        idata['fields']['updated'],
-                        idata['fields']['status']['name'],
-                        idata['fields']['priority']['name'],
-                        json.dumps(idata),
-                        json.dumps(history)
-                    )
-                )
-                conn.commit()
-
-            #--------------------------------------------------------
-            # parent / child relationships ...
-            #--------------------------------------------------------
-
-            has_field_parent = False
-            parent = None
-            parents = []
-            children = []
-
-            # check fields
-            if not has_field_parent and idata['fields'].get('customfield_12313140'):
-                parent = idata['fields']['customfield_12313140']
-                has_field_parent = True
-            if not has_field_parent and idata['fields'].get('customfield_12318341'):
-                cf = idata['fields']['customfield_12318341']
-                parent = cf['key']
-                has_field_parent = True
-            if parent:
-                parents = [parent]
-                self.field_parent = parent
-            if children:
-                children = children
-
-            # check the events history ...
-            for event in history:
-                for eitem in event['items']:
-                    if eitem['field'] == 'Parent Link' and not has_field_parent:
-                        if eitem['toString']:
-                            #parent = eitem['toString'].split()[0]
-                            #has_field_parent = True
-                            pass
-                    elif eitem['field'] == 'Epic Child':
-                        if eitem['toString']:
-                            children.append(eitem['toString'].split()[0])
-
-            '''
-            if link_type['name'] == 'Blocks':
-                #return 'children'
-                #return 'parents'
-
-                if 'outwardIssue' in link and link_type['outward'] == 'blocks':
-                    #return 'children'
-                    return 'parents'
-
-                if 'inwardIssue' in link and link_type['inward'] == 'is blocked by':
-                    #return 'parents'
-                    return 'children'
-            '''
-
-            if parents or children:
-                with conn.cursor() as cur:
-                    for parent in parents:
-                        cur.execute(
-                            "INSERT INTO jira_issue_relationships (parent, child) VALUES (%s, %s)",
-                            (parent, idata['key'])
-                        )
-                    for child in children:
-                        cur.execute(
-                            "INSERT INTO jira_issue_relationships (parent, child) VALUES (%s, %s)",
-                            (idata['key'], child)
-                        )
-                conn.commit()
-            #import epdb; epdb.st()
 
 
 def main():

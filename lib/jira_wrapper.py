@@ -8,23 +8,141 @@ can not generate tokens nor do advanced data import. This script works around al
 selenium to navigate through the pages and to input the data.
 """
 
+import atexit
+import argparse
 import datetime
 import copy
 import glob
 import json
+import logging
 import os
 import time
+from datetime import timezone
 import jira
 
 import requests
-import requests_cache
 
-import sqlite3
+import concurrent.futures
+
 from pprint import pprint
 from logzero import logger
 
+from database import JiraDatabaseWrapper
+from database import ISSUE_INSERT_QUERY
 
-# requests_cache.install_cache('demo_cache')
+
+rlog = logging.getLogger('urllib3')
+rlog.setLevel(logging.DEBUG)
+
+
+ISSUE_COLUMN_NAMES = [
+    "datafile",
+    "fetched",
+    "url",
+    "id",
+    "project",
+    "number",
+    "key",
+    "type",
+    "summary",
+    "description",
+    "created_by",
+    "assigned_to",
+    "created",
+    "updated",
+    "state",
+    "priority",
+    "data",
+    "history"
+]
+
+class HistoryFetchFailedException(Exception):
+    def __init__(self, message="Failed to fetch history data."):
+        self.message = message
+        super().__init__(self.message)
+
+
+class DataWrapper:
+    def __init__(self, fn):
+        self.datafile = fn
+        if not os.path.exists(self.datafile):
+            raise Exception(f'{self.datafile} does not exist')
+
+        with open(self.datafile, 'r') as f:
+            self._data = json.loads(f.read())
+
+        self.project = self._data['key'].split('-')[0]
+        self.number = int(self._data['key'].split('-')[-1])
+
+        ts = os.path.getctime(self.datafile)
+        self.fetched = datetime.datetime.fromtimestamp(ts)
+
+        self._history = copy.deepcopy(self._data['history'])
+        self._data.pop('history', None)
+
+        self.assigned_to = None
+        if self._data['fields']['assignee']:
+            self.assigned_to = self._data['fields']['assignee']['name']
+
+    @property
+    def id(self):
+        return self._data['id']
+
+    @property
+    def raw_data(self):
+        return self._data
+
+    @property
+    def data(self):
+        return json.dumps(self._data)
+
+    @property
+    def raw_history(self):
+        return self._history
+
+    @property
+    def history(self):
+        return json.dumps(self._history)
+
+    @property
+    def key(self):
+        return self._data['key']
+
+    @property
+    def url(self):
+        return self._data['self']
+
+    @property
+    def created_by(self):
+        return self._data['fields']['creator']['name']
+
+    @property
+    def type(self):
+        return self._data['fields']['issuetype']['name']
+
+    @property
+    def summary(self):
+        return self._data['fields']['summary']
+
+    @property
+    def description(self):
+        return self._data['fields']['description'] or ''
+
+    @property
+    def created(self):
+        return self._data['fields']['created'],
+
+    @property
+    def updated(self):
+        return self._data['fields']['updated'],
+
+    @property
+    def state(self):
+        return self._data['fields']['status']['name']
+
+    @property
+    def priority(self):
+        return self._data['fields']['priority']['name']
 
 
 def sortable_key_from_ikey(key):
@@ -52,20 +170,22 @@ def history_to_dict(history):
 
 class JiraWrapper:
 
+    processed = None
     project = None
-    errata = None
-    bugzillas = None
-    jira_issues = None
-    jira_issues_objects = None
+    #errata = None
+    #bugzillas = None
+    #jira_issues = None
+    #jira_issues_objects = None
     cachedir = '.data'
-    driver = None
-    db_connection = None
 
-    def __init__(self, project='AAH'):
-        self.project = project
+    def __init__(self):
 
-        self.db_connection = sqlite3.connect("jira.db")
-        self.init_database()
+        self.project = None
+        self.processed = {}
+
+        self.jdbw = JiraDatabaseWrapper()
+        self.conn = self.jdbw.get_connection()
+        atexit.register(self.conn.close)
 
         jira_token = os.environ.get('JIRA_TOKEN')
         if not jira_token:
@@ -79,75 +199,25 @@ class JiraWrapper:
         # validate auth ...
         self.jira_client.myself()
 
+    def scrape(self, project=None, number=None):
+        self.project = project
+        self.number = number
+
         logger.info('scrape jira issues')
         self.scrape_jira_issues()
-
-        logger.info('save jira issues to disk')
-        self.save_data()
-
-    def init_database(self):
-        cursor = self.db_connection.cursor()
-        cursor.execute((
-            "CREATE TABLE IF NOT EXISTS"
-            + " issues ("
-            +   "  project TEXT"
-            +   ", number INTEGER"
-            +   ", created TEXT"
-            +   ", updated TEXT"
-            +   ", fetched TEXT"
-            +   ", valid INTEGER DEFAULT 1 NOT NULL"
-            +   ", state TEXT"
-            +   ", data TEXT"
-            +   ", history TEXT"
-            +   ", datafile TEXT"
-            +   ", PRIMARY KEY(project, number)"
-            + ")"
-        ))
-
-    def save_data(self):
-
-        cursor = self.db_connection.cursor()
-        sql = f''' SELECT data,history FROM issues WHERE project = ? '''
-        cursor.execute(sql, [self.project])
-        rows = cursor.fetchall()
-
-        dataset = [(x[0],x[1]) for x in rows if x[0]]
-        dataset = [(json.loads(x[0]), x[1]) for x in dataset]
-        dataset = [x for x in dataset if x[1] is not None]
-        dataset = [(x[0], json.loads(x[1])) for x in dataset]
-        dataset = [(x[0], json.loads(x[1])) for x in dataset]
-        for idx,x in enumerate(dataset):
-            ds = x[0]
-            ds['history'] = x[1]
-            dataset[idx] = ds
-
-        dataset = sorted(dataset, key=lambda x: sortable_key_from_ikey(x['id']))
-
-        if not os.path.exists(self.cachedir):
-            os.makedirs(self.cachedir)
-        '''
-        jfile = os.path.join(self.cachedir, 'jiras.json')
-        with open(jfile, 'w') as f:
-            f.write(json.dumps(dataset, indent=2))
-        '''
-        for issue in dataset:
-            fn = os.path.join(self.cachedir, issue['key'] + '.json')
-            with open(fn, 'w') as f:
-                f.write(json.dumps(issue, indent=2))
-
-        #import epdb; epdb.st()
+        self.process_relationships()
 
     def store_issue_column(self, project, number, colname, value):
-        cursor = self.db_connection.cursor()
-        sql = f''' UPDATE issues SET {colname} = ? WHERE project = ? AND number = ? '''
-        cursor.execute(sql, [value, project, number])
-        self.db_connection.commit()
+        with self.conn.cursor() as cur:
+            sql = f''' UPDATE jira_issues SET {colname} = %s WHERE project = %s AND number = %s '''
+            cur.execute(sql, (value, project, number,))
+            self.conn.commit()
 
     def get_issue_column(self, project, number, colname):
-        cursor = self.db_connection.cursor()
-        sql = f''' SELECT {colname} FROM issues WHERE project = ? AND number = ? '''
-        cursor.execute(sql, [project, number])
-        rows = cursor.fetchall()
+        with self.conn.cursor() as cur:
+            sql = f''' SELECT {colname} FROM jira_issues WHERE project = %s AND number = %s '''
+            cur.execute(sql, (project, number,))
+            rows = cur.fetchall()
         if not rows:
             return None
         value = rows[0][0]
@@ -157,67 +227,40 @@ class JiraWrapper:
         data = self.get_issue_column(project, number, 'data')
         if data is None:
             return None
-        ds = json.loads(data)
+        if not isinstance(data, dict):
+            ds = json.loads(data)
+        else:
+            ds = data
         return ds['fields'].get(field_name)
 
     def store_issue_valid(self, project, number):
-        cursor = self.db_connection.cursor()
-        sql = ''' UPDATE issues SET valid = 1 WHERE project = ? AND number = ? '''
-        cursor.execute(sql, [project, number])
-        self.db_connection.commit()
+        with self.conn.cursor() as cur:
+            sql = ''' UPDATE jira_issues SET is_valid = %s WHERE project = ? AND number = ? '''
+            cur.execute(sql, (True, project, number,))
+            self.conn.commit()
 
     def store_issue_invalid(self, project, number):
-        cursor = self.db_connection.cursor()
-        cursor.execute('SELECT count(number) FROM issues WHERE project = ? AND number = ?', [project, number])
-        found = cursor.fetchall()
-        if found[0][0] == 0:
-            sql = ''' INSERT INTO issues(project,number,valid) VALUES(?,?,?) '''
-            cursor.execute(sql, [project, number, 0])
-        else:
-            sql = ''' UPDATE issues SET valid = 0 WHERE project = ? AND number = ? '''
-            cursor.execute(sql, [project, number])
-        self.db_connection.commit()
-
-    def store_issue_state(self, project, number, state):
-        cursor = self.db_connection.cursor()
-        sql = ''' UPDATE issues SET state = ? WHERE project = ? AND number = ? '''
-        cursor.execute(sql, [project, number, state])
-        self.db_connection.commit()
-
-    def store_issue_data(self, project, number, data):
-        cursor = self.db_connection.cursor()
-        cursor.execute('SELECT count(number) FROM issues WHERE project = ? AND number = ?', [project, number])
-        found = cursor.fetchall()
-        if found[0][0] == 0:
-            sql = ''' INSERT INTO issues(project,number,data) VALUES(?,?,?) '''
-            cursor.execute(sql, [project, number, data])
-        else:
-            sql = ''' UPDATE issues SET data = ? WHERE project = ? AND number = ? '''
-            cursor.execute(sql, [data, project, number])
-        self.db_connection.commit()
-
-    def store_issue_history(self, project, number, history):
-        cursor = self.db_connection.cursor()
-        sql = ''' UPDATE issues SET history = ? WHERE project = ? AND number = ? '''
-        cursor.execute(sql, [history, project, number])
-        self.db_connection.commit()
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT count(number) FROM jira_issues WHERE project = %s AND number = %s', (project, number,))
+            found = cur.fetchall()
+            if found[0][0] == 0:
+                sql = ''' INSERT INTO jira_issues(project,number,is_valid) VALUES(%s,%s,%s) '''
+                cur.execute(sql, (project, number, False))
+            else:
+                sql = ''' UPDATE jira_issues SET is_valid = %s WHERE project = %s AND number = %s '''
+                cur.execute(sql, (False, project, number,))
+            self.conn.commit()
 
     def get_known_numbers(self, project):
-        cursor = self.db_connection.cursor()
-        cursor.execute('SELECT number FROM issues WHERE project = ?', [project])
-        rows = cursor.fetchall()
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT number FROM jira_issues WHERE project = %s', (project,))
+            rows = cur.fetchall()
         return [x[0] for x in rows]
 
     def get_invalid_numbers(self, project):
-        cursor = self.db_connection.cursor()
-        cursor.execute('SELECT number FROM issues WHERE project = ? AND valid = 0', [project])
-        rows = cursor.fetchall()
-        return [x[0] for x in rows]
-
-    def get_open_numbers(self, project):
-        cursor = self.db_connection.cursor()
-        cursor.execute("SELECT number FROM issues WHERE project = ? AND state = 'open'", [project])
-        rows = cursor.fetchall()
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT number FROM jira_issues WHERE project = %s AND is_valid = %s', (project, False,))
+            rows = cur.fetchall()
         return [x[0] for x in rows]
 
     def get_issue_with_history(self, issue_key):
@@ -227,8 +270,7 @@ class JiraWrapper:
             logger.info(f'({count}) get history for {issue_key}')
             count += 1
             try:
-                h_issue = self.jira_client.issue(issue_key, expand='changelog')
-                return h_issue
+                return self.jira_client.issue(issue_key, expand='changelog')
             except requests.exceptions.JSONDecodeError as e:
                 #logger.error(e)
                 #import epdb; epdb.st()
@@ -240,10 +282,13 @@ class JiraWrapper:
                 time.sleep(2)
 
             if count > 10:
+                raise HistoryFetchFailedException
                 return None
 
     def get_issue(self, issue_key):
 
+        project = issue_key.split('-')[0]
+        number = int(issue_key.split('-')[1])
         issue = None
 
         while True:
@@ -254,6 +299,9 @@ class JiraWrapper:
 
             except jira.exceptions.JIRAError as e:
                 logger.error(e)
+
+                import epdb; epdb.st()
+
                 break
 
             except requests.exceptions.ChunkedEncodingError as e:
@@ -288,38 +336,44 @@ class JiraWrapper:
 
         return issue
 
-    def process_issue_history(self, project, number, issue):
+    def get_issue_history(self, project, number, issue):
 
-        # created_at & updated_at ...
-        old_created = self.get_issue_column(project, number, 'created')
-        old_updated = self.get_issue_column(project, number, 'updated')
-        created = issue.fields.created
-        updated = issue.fields.updated
-        self.store_issue_column(project, number, 'created', created)
-        self.store_issue_column(project, number, 'updated', updated)
+        # 2023-06-16T17:18:14.000+0000
+        updated = issue.raw['fields']['updated']
+        updated = datetime.datetime.strptime(updated, '%Y-%m-%dT%H:%M:%S.%f%z')
 
-        # get history if necessary ...
-        if old_updated != updated or not self.get_issue_column(project, number, 'history'):
-            #logger.info(f'get history for {issue.key}')
-            #h_issue = self.jira_client.issue(issue.key, expand='changelog')
+        # when was it last fetched?
+        with self.conn.cursor() as cur:
+            cur.execute(
+                'SELECT project,number,fetched,history FROM jira_issues WHERE project=%s AND number=%s',
+                (project, number)
+            )
+            rows = cur.fetchall()
 
-            try:
-                h_issue = self.get_issue_with_history(issue.key)
-            except requests.exceptions.JSONDecodeError:
-                return
-            except jira.exceptions.JIRAError:
-                return
+        if rows:
+            fetched = rows[0][2].replace(tzinfo=timezone.utc)
+            history = rows[0][3]
+            if updated <= fetched:
+                return history
 
-            # the api has return size limits and many AAP tickets are too big
-            if not hasattr(h_issue, 'changelog'):
-                return
+        logger.info(f'attempting to get history for {project}-{number}')
+        try:
+            h_issue = self.get_issue_with_history(issue.key)
+        except requests.exceptions.JSONDecodeError:
+            return
+        except jira.exceptions.JIRAError:
+            return
 
-            raw_history = []
-            histories = h_issue.changelog.histories[:]
-            for idh, history in enumerate(histories):
-                ds = history_to_dict(history)
-                raw_history.append(ds)
-            self.store_issue_history(project, number, json.dumps(json.dumps(raw_history)))
+        if h_issue is None:
+            import epdb; epdb.st()
+
+        raw_history = []
+        histories = h_issue.changelog.histories[:]
+        for idh, history in enumerate(histories):
+            ds = history_to_dict(history)
+            raw_history.append(ds)
+
+        return raw_history
 
     def scrape_jira_issues(self, github_issue_to_find=None):
 
@@ -335,20 +389,27 @@ class JiraWrapper:
         '''
 
         logger.info(f'searching for {self.project} issues ...')
-        #qs = f'project = {self.project} AND resolution = Unresolved ORDER BY updated'
         qs = f'project = {self.project} ORDER BY updated'
-        #qs = f'project = {self.project}'
 
         # flaky API ...
-        while True:
-            logger.info(f'search: {qs} ...')
-            try:
-                issues = self.jira_client.search_issues(qs, maxResults=10000)
-                #issues = self.jira_client.search_issues(qs, maxResults=1000)
-                break
-            except Exception as e:
-                logger.error(e)
-                time.sleep(.5)
+        if self.number:
+            logger.info(f'limit scraping to {self.project}-{self.number}')
+            ikey = self.project + '-' + str(self.number)
+            issue = self.get_issue(ikey)
+            if not issue:
+                issues = []
+            else:
+                issues = [issue]
+        else:
+            while True:
+                logger.info(f'search: {qs} ...')
+                try:
+                    issues = self.jira_client.search_issues(qs, maxResults=10000)
+                    #issues = self.jira_client.search_issues(qs, maxResults=1000)
+                    break
+                except Exception as e:
+                    logger.error(e)
+                    time.sleep(.5)
 
         # store each "open" issue ...
         processed = []
@@ -361,53 +422,47 @@ class JiraWrapper:
             project = issue.key.split('-')[0]
             number = int(issue.key.split('-')[1])
 
-            # '2022-10-27T18:38:29.000+0000'
-            updated = issue.fields.updated
-            updated = datetime.datetime.strptime(updated.split('.')[0], '%Y-%m-%dT%H:%M:%S')
-            if oldest_update is None or updated < oldest_update:
-                oldest_update = updated
-
-            # write to db
-            self.store_issue_data(project, number, json.dumps(issue.raw))
-            self.store_issue_state(project, number, 'open')
-            self.store_issue_valid(project, number)
-
-            last_fetched = self.get_issue_column(project, number, 'fetched')
-            if last_fetched:
-                last_fetched = datetime.datetime.strptime(last_fetched.split('.')[0], '%Y-%m-%dT%H:%M:%S')
-                if last_fetched >= updated:
-                    continue
+            # 2023-06-16T17:18:14.000+0000
+            uts = issue.get_field('updated')
+            uts = datetime.datetime.strptime(uts.split('.')[0], '%Y-%m-%dT%H:%M:%S')
+            if oldest_update is None or oldest_update > uts:
+                oldest_update = uts
 
             # get history
-            self.process_issue_history(project, number, issue)
+            logger.info(f'get history for {project}-{number}')
+            history = self.get_issue_history(project, number, issue)
+            logger.info(f'found {len(history)} events for {project}-{number}')
 
-            # mark it fetched
-            self.store_issue_column(project, number, 'fetched', datetime.datetime.now().isoformat())
+            # write to json file
+            ds = issue.raw
+            ds['history'] = history
+            fn = os.path.join(self.cachedir, ds['key'] + '.json')
+            logger.info(f'write {fn}')
+            with open(fn, 'w') as f:
+                f.write(json.dumps(issue.raw))
 
+            # write to DB
+            self.store_issue_to_database_by_filename(fn)
+
+            # skip further fetching on this issue ...
             processed.append(number)
 
+        if self.number:
+            return
+
         # reconcile state ...
-        #db_open = self.get_open_numbers(self.project)
         known = sorted(self.get_known_numbers(self.project))
         invalid = sorted(self.get_invalid_numbers(self.project))
-        to_update = [x for x in range(1, known[-1])]
-        #to_update = [x for x in to_update if x not in invalid]
-        #to_update = [x for x in to_update if x not in processed]
-        to_update = sorted(to_update, reverse=True)
+        unfetched = []
+        if known:
+            unfetched = [x for x in range(1, known[-1]) if x not in invalid]
+        unfetched = sorted(unfetched, reverse=True)
 
         # from the fetched 1000, what is the oldest updated time ...
         # with that time, can we assume anything in the db that was updated -after-
         # does not need fetched again ...?
         to_skip = []
-        for number in to_update:
-
-            if number in invalid:
-                to_skip.append(number)
-                continue
-
-            if number in processed:
-                to_skip.append(number)
-                continue
+        for number in unfetched:
 
             updated = self.get_issue_field(self.project, number, 'updated')
             if updated is None:
@@ -421,65 +476,222 @@ class JiraWrapper:
             last_fetched = self.get_issue_column(project, number, 'fetched')
             logger.info(f'{project}-{number} fetched: {last_fetched}')
             if last_fetched is not None:
-                last_fetched = datetime.datetime.strptime(last_fetched.split('.')[0], '%Y-%m-%dT%H:%M:%S')
                 if last_fetched >= oldest_update:
                     to_skip.append(number)
                     continue
 
-        to_update = [x for x in to_update if x not in to_skip]
+        logger.info(f'determined {len(to_skip)} numbers do not need to be re-fetched')
+        unfetched = [x for x in unfetched if x not in to_skip]
+        logger.info(f'fetching {len(unfetched)} additional issues')
 
-        # update each issue ...
-        for idm, mn in enumerate(to_update):
+        # update each unfetched issue ...
+        for idm, mn in enumerate(unfetched):
             ikey = self.project + '-' + str(mn)
 
             project = self.project
             number = mn
-            logger.info(f'{len(to_update)}|{idm} {ikey} sync state ...')
+            logger.info(f'{len(unfetched)}|{idm} {ikey} sync state ...')
 
             last_state = self.get_issue_column(project, number, 'state')
             last_fetched = self.get_issue_column(project, number, 'fetched')
             logger.info(f'{project}-{number} fetched: {last_fetched}')
             if last_fetched is not None:
-                last_fetched = datetime.datetime.strptime(last_fetched.split('.')[0], '%Y-%m-%dT%H:%M:%S')
                 delta = datetime.datetime.now() - last_fetched
                 logger.info(f'{project}-{number} fetched delta: {delta.days}')
                 #if delta.days < 0 and last_state != 'open':
                 if delta.days <= 0:
                     continue
 
-            #import epdb; epdb.st()
             issue = self.get_issue(ikey)
             if issue is None:
                 logger.error(f'{ikey} is invalid')
                 self.store_issue_invalid(self.project, mn)
                 continue
 
-            self.store_issue_data(project, number, json.dumps(issue.raw))
-            self.store_issue_valid(project, number)
-            if issue.fields.resolution is not None:
-                self.store_issue_state(project, number, 'closed')
-            else:
-                self.store_issue_state(project, number, 'open')
+            # write to json file
+            ds = issue.raw
+            history = self.get_issue_history(self.project, mn, issue)
+            ds['history'] = history
+            fn = os.path.join(self.cachedir, ds['key'] + '.json')
+            with open(fn, 'w') as f:
+                f.write(json.dumps(issue.raw))
 
-            # get history
-            self.process_issue_history(project, number, issue)
+            # write to DB
+            self.store_issue_to_database_by_filename(fn)
 
-            # mark it fetched
-            self.store_issue_column(project, number, 'fetched', datetime.datetime.now().isoformat())
+    def store_issue_to_database_by_filename(self, ifile):
+
+        dw = DataWrapper(ifile)
+
+        qs = 'INSERT INTO jira_issues'
+        qs += "(" + ",".join(ISSUE_COLUMN_NAMES) + ")"
+        qs += " VALUES (" + ('%s,' * len(ISSUE_COLUMN_NAMES)).rstrip(',') + ")"
+        qs += " ON CONFLICT (project, number) DO UPDATE SET "
+        qs += ' '.join([f"{x}=EXCLUDED.{x}," for x in ISSUE_COLUMN_NAMES if x not in ['project', 'number']])
+        qs = qs.rstrip(',')
+
+        args = [getattr(dw, x) for x in ISSUE_COLUMN_NAMES]
+
+        with self.conn.cursor() as cur:
+            cur.execute(
+                qs,
+                tuple(args)
+            )
+            self.conn.commit()
+
+    def process_relationships(self):
+
+        logger.info(f'processing relationships for {self.project}')
+
+        if self.number:
+            keys = [self.project + '-' + str(self.number)]
+        else:
+            known = sorted(self.get_known_numbers(self.project))
+            keys = [self.project + '-' + str(x) for x in known]
+
+        logger.info(f'processing relationships for {len(keys)} issue in {self.project}')
+        for key in keys:
+            fn = os.path.join(self.cachedir, key + '.json')
+            if not os.path.exists(fn):
+                continue
+            self.store_issue_relationships_to_database_by_filename(fn)
+
+    def store_issue_relationships_to_database_by_filename(self, ifile):
+
+        dw = DataWrapper(ifile)
+
+        #--------------------------------------------------------
+        # parent / child relationships ...
+        #--------------------------------------------------------
+
+        logger.info(f'enumerating parents and children for {dw.key}')
+
+        has_field_parent = False
+        parent = None
+        parents = []
+        children = []
+
+        # FIXME - dunno what this was
+        if not has_field_parent and dw.raw_data['fields'].get('customfield_12313140'):
+            parent = dw.raw_data['fields']['customfield_12313140']
+            has_field_parent = True
+
+        # feature link ...
+        if not has_field_parent and dw.raw_data['fields'].get('customfield_12318341'):
+            cf = dw.raw_data['fields']['customfield_12318341']
+            parent = cf['key']
+            has_field_parent = True
+
+        if parent:
+            parents = [parent]
+
+        if children:
+            children = children
+
+        #if dw.raw_history is None:
+        #    import epdb; epdb.st()
+
+        # check the events history ...
+        for event in dw.raw_history:
+            for eitem in event['items']:
+                if eitem['field'] == 'Parent Link' and not has_field_parent:
+                    if eitem['toString']:
+                        #parent = eitem['toString'].split()[0]
+                        #has_field_parent = True
+                        pass
+                elif eitem['field'] == 'Epic Child':
+                    if eitem['toString']:
+                        children.append(eitem['toString'].split()[0])
+
+        '''
+        if link_type['name'] == 'Blocks':
+            #return 'children'
+            #return 'parents'
+
+            if 'outwardIssue' in link and link_type['outward'] == 'blocks':
+                #return 'children'
+                return 'parents'
+
+            if 'inwardIssue' in link and link_type['inward'] == 'is blocked by':
+                #return 'parents'
+                return 'children'
+        '''
+
+        logger.info(f'{len(parents)} parents and {len(children)} children for {dw.key}')
+
+        if parents or children:
+            with self.conn.cursor() as cur:
+                for parent in parents:
+                    cur.execute(
+                        "INSERT INTO jira_issue_relationships (parent, child) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                        (parent, dw.key)
+                    )
+                for child in children:
+                    cur.execute(
+                        "INSERT INTO jira_issue_relationships (parent, child) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                        (dw.key, child)
+                    )
+                self.conn.commit()
+
+
+def start_scrape(project):
+    """Threaded target function."""
+    jw = JiraWrapper()
+    jw.scrape(project=project)
 
 
 def main():
+
     projects = [
         'AAH',
         'ANSTRAT',
         'AAPRFE',
         'AAP',
+        'ACA',
         'AAPBUILD',
         'PARTNERENG',
         'PLMCORE',
     ]
-    for project in projects:
-        jw = JiraWrapper(project=project)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--serial', action='store_true', help='do not use threading')
+    parser.add_argument('--project', help='which project to scrape')
+    parser.add_argument('--number', help='which number scrape', type=int, default=None)
+
+    args = parser.parse_args()
+
+    if args.project:
+        projects = [args.project]
+
+    if args.serial:
+        # do one at a time ...
+        for project in projects:
+            if args.number:
+                jw = JiraWrapper()
+                jw.scrape(project=project, number=args.number)
+            else:
+                jw = JiraWrapper()
+                jw.scrape(project=project)
+    else:
+        # do 4 at a time ...
+        total = 4
+        args_list = projects[:]
+        kwargs_list = [{} for x in projects]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=total) as executor:
+            future_to_args_kwargs = {
+                executor.submit(start_scrape, args, **kwargs): (args, kwargs)
+                for args, kwargs in zip(args_list, kwargs_list)
+            }
+            for future in concurrent.futures.as_completed(future_to_args_kwargs):
+                args, kwargs = future_to_args_kwargs[future]
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    print(f"Function raised an exception: {exc}")
+                else:
+                    print(f"Function returned: {result}")
+
     logger.info('done scraping!')
 
 
