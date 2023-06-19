@@ -28,6 +28,7 @@ CREATE TABLE jira_issues (
   fetched TIMESTAMP,
   created TIMESTAMP,
   updated TIMESTAMP,
+  closed TIMESTAMP,
   state VARCHAR(50),
   priority VARCHAR(50),
   data JSONB,
@@ -60,13 +61,14 @@ ISSUE_INSERT_QUERY = """
         assigned_to,
         created,
         updated,
+        closed,
         state,
         priority,
         data,
         history
     )
     VALUES (
-        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
     );
 """
 

@@ -13,13 +13,14 @@
 
         <link rel="stylesheet" href="/static/css/navbar.css" crossorigin="anonymous"></link>
 
-		<script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script src="/static/js/burndown.js"></script>
 
-			function onLoad() {
-			};
-
-		</script>
-
+	  <style>
+		#BurnDownChartContainer {
+		  height: 80vh; /* Set the container height to 80% of the viewport height */
+		}
+	  </style>
 
     </head>
 
@@ -27,9 +28,13 @@
 
         {% include 'navbar.html' %}
 
-        <div>
+        <div id="burndown-chart">
             burndown
         </div>
+
+		<div id="BurnDownChartContainer">
+        	<canvas id="lineChart"></canvas>
+		</div>
 
     </body>
 

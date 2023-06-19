@@ -27,34 +27,19 @@ import concurrent.futures
 from pprint import pprint
 from logzero import logger
 
+from constants import PROJECTS, ISSUE_COLUMN_NAMES
 from database import JiraDatabaseWrapper
 from database import ISSUE_INSERT_QUERY
+from utils import (
+    sortable_key_from_ikey,
+    history_items_to_dict,
+    history_to_dict,
+)
 
 
 rlog = logging.getLogger('urllib3')
 rlog.setLevel(logging.DEBUG)
 
-
-ISSUE_COLUMN_NAMES = [
-    "datafile",
-    "fetched",
-    "url",
-    "id",
-    "project",
-    "number",
-    "key",
-    "type",
-    "summary",
-    "description",
-    "created_by",
-    "assigned_to",
-    "created",
-    "updated",
-    "state",
-    "priority",
-    "data",
-    "history"
-]
 
 class HistoryFetchFailedException(Exception):
     def __init__(self, message="Failed to fetch history data."):
@@ -137,6 +122,14 @@ class DataWrapper:
         return self._data['fields']['updated']
 
     @property
+    def closed(self):
+
+        if not self.state == 'Closed':
+            return None
+
+        return self._data['fields']['resolutiondate']
+
+    @property
     def state(self):
         return self._data['fields']['status']['name']
 
@@ -145,29 +138,6 @@ class DataWrapper:
         if self._data['fields']['priority'] is None:
             return None
         return self._data['fields']['priority']['name']
-
-
-def sortable_key_from_ikey(key):
-    return (key.split('-')[0], int(key.split('-')[-1]), key)
-
-
-def history_items_to_dict(items):
-    data = []
-    for item in items:
-        data.append(item.__dict__)
-    return data
-
-
-def history_to_dict(history):
-    return {
-        'id': history.id,
-        'author': {
-            'displayName': history.author.displayName,
-            'key': history.author.key,
-            'name': history.author.name
-        },
-        'items': history_items_to_dict(history.items)
-    }
 
 
 class JiraWrapper:
@@ -651,25 +621,13 @@ def start_scrape(project):
 
 def main():
 
-    projects = [
-        'AA',
-        'AAH',
-        'ANSTRAT',
-        'AAPRFE',
-        'AAP',
-        'ACA',
-        'AAPBUILD',
-        'PARTNERENG',
-        'PLMCORE',
-    ]
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--serial', action='store_true', help='do not use threading')
     parser.add_argument('--project', help='which project to scrape')
     parser.add_argument('--number', help='which number scrape', type=int, default=None)
-
     args = parser.parse_args()
 
+    projects = PROJECTS[:]
     if args.project:
         projects = [args.project]
 

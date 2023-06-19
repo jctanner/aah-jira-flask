@@ -19,6 +19,7 @@ from logzero import logger
 # from nodes import TicketNode
 from nodes import tickets_to_nodes
 from database import JiraDatabaseWrapper
+from stats_wrapper import StatsWrapper
 
 jdbw = JiraDatabaseWrapper()
 conn = jdbw.get_connection()
@@ -198,6 +199,22 @@ def tickets_tree():
             imap[ik]['summary'] = idata['summary']
 
     return jsonify(imap)
+
+
+@app.route('/api/tickets_burndown')
+@app.route('/api/tickets_burndown/')
+def tickets_burndown():
+    sw = StatsWrapper()
+    #data = sw.burndown('AAH', frequency='monthly')
+    data = sw.burndown('AAH', frequency='weekly')
+    data = json.loads(data)
+    keys = list(data.keys())
+    keymap = [(x, x.split('T')[0]) for x in keys]
+    for km in keymap:
+        data[km[1]] = data[km[0]]
+        data.pop(km[0], None)
+    return jsonify(data)
+
 
 
 if __name__ == '__main__':
