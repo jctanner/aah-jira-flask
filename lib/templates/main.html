@@ -11,6 +11,8 @@
         <link rel="stylesheet" href="//cdn.datatables.net/1.11.5/css/jquery.dataTables.min.css" crossorigin="anonymous"></link>
         <script src="//cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
 
+        <link rel="stylesheet" href="/static/css/navbar.css" crossorigin="anonymous"></link>
+
 		<script>
 
             // https://stackoverflow.com/a/6491621
@@ -90,11 +92,7 @@
 
     <body onload="onLoad();" style="width:100%">
 
-        <!-- NAVBAR -->
-        <div>
-            <div><a href="/ui">list</a></div>
-            <div><a href="/ui/tree">tree</a></div>
-        </div>
+        {% include 'navbar.html' %}
 
 		<div id="tickets-container" style="width:100%">
 			<table id='tickets-table' style="width:100%">

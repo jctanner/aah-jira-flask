@@ -62,6 +62,11 @@ def ui_tree():
     return render_template('tree.html')
 
 
+@app.route('/ui/burndown')
+def ui_burndown():
+    return render_template('burndown.html')
+
+
 @app.route('/api/tickets')
 def tickets():
     #filtered = [x for x in jiras if x['fields']['status']['name'].lower() not in CLOSED]

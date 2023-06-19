@@ -130,11 +130,11 @@ class DataWrapper:
 
     @property
     def created(self):
-        return self._data['fields']['created'],
+        return self._data['fields']['created']
 
     @property
     def updated(self):
-        return self._data['fields']['updated'],
+        return self._data['fields']['updated']
 
     @property
     def state(self):
@@ -142,6 +142,8 @@ class DataWrapper:
 
     @property
     def priority(self):
+        if self._data['fields']['priority'] is None:
+            return None
         return self._data['fields']['priority']['name']
 
 
@@ -283,7 +285,6 @@ class JiraWrapper:
 
             if count > 10:
                 raise HistoryFetchFailedException
-                return None
 
     def get_issue(self, issue_key):
 
@@ -294,14 +295,10 @@ class JiraWrapper:
         while True:
             logger.info(f'fetch {issue_key}')
             try:
-                issue = self.jira_client.issue(issue_key)
-                break
+                return self.jira_client.issue(issue_key)
 
             except jira.exceptions.JIRAError as e:
                 logger.error(e)
-
-                import epdb; epdb.st()
-
                 break
 
             except requests.exceptions.ChunkedEncodingError as e:
@@ -363,9 +360,14 @@ class JiraWrapper:
             return
         except jira.exceptions.JIRAError:
             return
+        except HistoryFetchFailedException as e:
+            return
 
         if h_issue is None:
-            import epdb; epdb.st()
+            return
+
+        if not hasattr(h_issue, 'changelog'):
+            return
 
         raw_history = []
         histories = h_issue.changelog.histories[:]
@@ -571,6 +573,8 @@ class JiraWrapper:
         parents = []
         children = []
 
+        # customfield_12311140
+
         # FIXME - dunno what this was
         if not has_field_parent and dw.raw_data['fields'].get('customfield_12313140'):
             parent = dw.raw_data['fields']['customfield_12313140']
@@ -582,14 +586,19 @@ class JiraWrapper:
             parent = cf['key']
             has_field_parent = True
 
+        # Epic link ...
+        if not has_field_parent and dw.raw_data['fields'].get('customfield_12311140'):
+            parent = dw.raw_data['fields'].get('customfield_12311140')
+            has_field_parent = True
+
         if parent:
             parents = [parent]
 
         if children:
             children = children
 
-        #if dw.raw_history is None:
-        #    import epdb; epdb.st()
+        if dw.raw_history is None:
+            return
 
         # check the events history ...
         for event in dw.raw_history:
@@ -643,6 +652,7 @@ def start_scrape(project):
 def main():
 
     projects = [
+        'AA',
         'AAH',
         'ANSTRAT',
         'AAPRFE',
