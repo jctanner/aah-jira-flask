@@ -1,13 +1,16 @@
 PROJECTS = [
     'AA',
     'AAH',
-    'ANSTRAT',
-    'AAPRFE',
     'AAP',
-    'ACA',
     'AAPBUILD',
+    'AAPRFE',
+    'ACA',
+    'ANSTRAT',
+    'HATSTRAT',
+    'OCPSTRAT',
     'PARTNERENG',
-    'PLMCORE',
+    #'PLMCORE',
+    'TELCOSTRAT',
 ]
 
 ISSUE_COLUMN_NAMES = [

@@ -12,6 +12,7 @@ def history_items_to_dict(items):
 def history_to_dict(history):
     return {
         'id': history.id,
+        'created': history.created,
         'author': {
             'displayName': history.author.displayName,
             'key': history.author.key,

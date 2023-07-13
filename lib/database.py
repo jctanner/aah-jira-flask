@@ -33,6 +33,7 @@ CREATE TABLE jira_issues (
   priority VARCHAR(50),
   data JSONB,
   history JSONB,
+  CONSTRAINT unique_issueid UNIQUE (id),
   CONSTRAINT unique_project_number UNIQUE (project, number)
 );
 '''

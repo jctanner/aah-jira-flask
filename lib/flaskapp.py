@@ -26,19 +26,6 @@ conn = jdbw.get_connection()
 atexit.register(conn.close)
 
 
-CLOSED = ['done', 'obsolete']
-
-
-'''
-datafiles = glob.glob('.data/AAH-*.json')
-all_jiras = []
-for df in datafiles:
-    logger.info(f'loading {df}')
-    with open(df, 'r') as f:
-        all_jiras.append(json.loads(f.read()))
-jiras = [x for x in all_jiras if x['fields']['status']['name'].lower() != 'closed']
-'''
-
 
 app = Flask(__name__)
 
@@ -58,6 +45,17 @@ def ui():
     return render_template('main.html')
 
 
+@app.route('/ui/issues')
+@app.route('/ui/issues/')
+def ui_issues():
+    return render_template('issues.html')
+
+
+@app.route('/ui/projects')
+def ui_projects():
+    return render_template('projects.html')
+
+
 @app.route('/ui/tree')
 def ui_tree():
     return render_template('tree.html')
@@ -68,13 +66,31 @@ def ui_burndown():
     return render_template('burndown.html')
 
 
+@app.route('/api/projects')
+def projects():
+
+    projects = []
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT DISTINCT(project) FROM jira_issues ORDER BY project")
+        results = cur.fetchall()
+        for row in results:
+            projects.append(row[0])
+
+    return jsonify(projects)
+
+
 @app.route('/api/tickets')
+@app.route('/api/tickets/')
 def tickets():
-    #filtered = [x for x in jiras if x['fields']['status']['name'].lower() not in CLOSED]
+
+    projects = request.args.getlist("project")
+    if projects:
+        project = projects[0]
+    else:
+        project = 'AAH'
 
     cols = ['key', 'created', 'updated', 'created_by', 'assigned_to', 'type', 'priority', 'state', 'summary']
-
-    WHERE = "WHERE project = 'AAH' AND state != 'Closed'"
+    WHERE = f"WHERE project = '{project}' AND state != 'Closed'"
 
     filtered = []
     with conn.cursor() as cur:
@@ -152,24 +168,6 @@ def tickets_tree():
 
     imap = {}
 
-    '''
-    for ik,idata in issue_keys.items():
-        if ik is None:
-            continue
-        if not ik.startswith('AAH-'):
-            continue
-        if ik not in imap:
-            imap[ik] = {
-                'key': ik,
-                'type': idata['type'],
-                'status': idata['state'],
-                'summary': idata['summary'],
-                'parent_key': None,
-            }
-        elif imap[ik]['summary'] is None:
-            imap[ik]['summary'] = idata['summary']
-    '''
-
     for node in nodes:
         #if node['child'] and not node['child'].startswith('AAH-'):
         #    continue
@@ -204,9 +202,15 @@ def tickets_tree():
 @app.route('/api/tickets_burndown')
 @app.route('/api/tickets_burndown/')
 def tickets_burndown():
+
+    projects = request.args.getlist("project")
+    if not projects:
+        return redirect('/api/tickets_burndown/?project=AAH')
+
     sw = StatsWrapper()
+    data = sw.burndown(projects, frequency='monthly')
     #data = sw.burndown('AAH', frequency='monthly')
-    data = sw.burndown('AAH', frequency='weekly')
+    #data = sw.burndown('AAH', frequency='weekly')
     data = json.loads(data)
     keys = list(data.keys())
     keymap = [(x, x.split('T')[0]) for x in keys]

@@ -16,6 +16,7 @@ import glob
 import json
 import logging
 import os
+import subprocess
 import time
 from datetime import timezone
 import jira
@@ -45,6 +46,37 @@ class HistoryFetchFailedException(Exception):
     def __init__(self, message="Failed to fetch history data."):
         self.message = message
         super().__init__(self.message)
+
+
+class DiskCacheWrapper:
+
+    def __init__(self, cachedir):
+        self.cachedir = cachedir
+
+    def write_issue(self, data):
+        fn = os.path.join(self.cachedir, 'by_id', data['id'] + '.json')
+        dn = os.path.dirname(fn)
+        if not os.path.exists(dn):
+            os.makedirs(dn)
+        with open(fn, 'w') as f:
+            f.write(json.dumps(data, indent=2, sort_keys=True))
+
+        # make a by key symlink
+        dn = os.path.join(self.cachedir, 'by_key')
+        if not os.path.exists(dn):
+            os.makedirs(dn)
+        src = '../by_id/' + os.path.basename(fn)
+        dst = f'{data["key"]}.json'
+        subprocess.run(f'rm -f {dst}; ln -s {src} {dst}', cwd=dn, shell=True)
+
+        return fn
+
+    def get_fn_for_issue_by_key(self, key):
+        path = os.path.join(self.cachedir, 'by_key', f'{key}.json')
+        path = os.path.abspath(path)
+        if not os.path.exists(path):
+            return None
+        return os.path.realpath(path)
 
 
 class DataWrapper:
@@ -144,6 +176,7 @@ class JiraWrapper:
 
     processed = None
     project = None
+    number = None
     #errata = None
     #bugzillas = None
     #jira_issues = None
@@ -151,6 +184,8 @@ class JiraWrapper:
     cachedir = '.data'
 
     def __init__(self):
+
+        self.dcw = DiskCacheWrapper(self.cachedir)
 
         self.project = None
         self.processed = {}
@@ -177,6 +212,10 @@ class JiraWrapper:
 
         logger.info('scrape jira issues')
         self.scrape_jira_issues()
+        self.process_relationships()
+
+    def map_relationships(self, project):
+        self.project = project
         self.process_relationships()
 
     def store_issue_column(self, project, number, colname, value):
@@ -235,7 +274,7 @@ class JiraWrapper:
             rows = cur.fetchall()
         return [x[0] for x in rows]
 
-    def get_issue_with_history(self, issue_key):
+    def get_issue_with_history(self, issue_key, fallback=False):
 
         count = 1
         while True:
@@ -244,10 +283,11 @@ class JiraWrapper:
             try:
                 return self.jira_client.issue(issue_key, expand='changelog')
             except requests.exceptions.JSONDecodeError as e:
-                #logger.error(e)
+                logger.error(e)
                 #import epdb; epdb.st()
-                #time.sleep(.5)
-                return self.jira_client.issue(issue_key)
+                time.sleep(.5)
+                #return self.jira_client.issue(issue_key)
+                #return self.get_issue_with_history(issue_key, fallback=True)
 
             except requests.exceptions.ChunkedEncodingError as e:
                 logger.error(e)
@@ -403,15 +443,21 @@ class JiraWrapper:
             # get history
             logger.info(f'get history for {project}-{number}')
             history = self.get_issue_history(project, number, issue)
+            if history is None:
+                processed.append(number)
+                continue
             logger.info(f'found {len(history)} events for {project}-{number}')
 
             # write to json file
             ds = issue.raw
             ds['history'] = history
+            '''
             fn = os.path.join(self.cachedir, ds['key'] + '.json')
             logger.info(f'write {fn}')
             with open(fn, 'w') as f:
                 f.write(json.dumps(issue.raw))
+            '''
+            fn = self.dcw.write_issue(ds)
 
             # write to DB
             self.store_issue_to_database_by_filename(fn)
@@ -484,9 +530,12 @@ class JiraWrapper:
             ds = issue.raw
             history = self.get_issue_history(self.project, mn, issue)
             ds['history'] = history
+            '''
             fn = os.path.join(self.cachedir, ds['key'] + '.json')
             with open(fn, 'w') as f:
                 f.write(json.dumps(issue.raw))
+            '''
+            fn = self.dcw.write_issue(ds)
 
             # write to DB
             self.store_issue_to_database_by_filename(fn)
@@ -515,16 +564,16 @@ class JiraWrapper:
 
         logger.info(f'processing relationships for {self.project}')
 
-        if self.number:
+        if self.number is not None:
             keys = [self.project + '-' + str(self.number)]
         else:
             known = sorted(self.get_known_numbers(self.project))
             keys = [self.project + '-' + str(x) for x in known]
 
-        logger.info(f'processing relationships for {len(keys)} issue in {self.project}')
+        logger.info(f'processing relationships for {len(keys)} issue(s) in {self.project}')
         for key in keys:
-            fn = os.path.join(self.cachedir, key + '.json')
-            if not os.path.exists(fn):
+            fn = self.dcw.get_fn_for_issue_by_key(key)
+            if fn is None or not os.path.exists(fn):
                 continue
             self.store_issue_relationships_to_database_by_filename(fn)
 
@@ -623,24 +672,35 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--serial', action='store_true', help='do not use threading')
-    parser.add_argument('--project', help='which project to scrape')
+    parser.add_argument('--project', help='which project to scrape', action='append', dest='projects')
     parser.add_argument('--number', help='which number scrape', type=int, default=None)
+    parser.add_argument('--relationships-only', action='store_true')
     args = parser.parse_args()
 
     projects = PROJECTS[:]
-    if args.project:
-        projects = [args.project]
+    if args.projects:
+        projects = [x for x in projects if x in args.projects]
 
-    if args.serial:
+    if args.serial or len(projects) == 1:
         # do one at a time ...
         for project in projects:
             if args.number:
                 jw = JiraWrapper()
-                jw.scrape(project=project, number=args.number)
+                if args.relationships_only:
+                    jw.map_relationships(project=project)
+                else:
+                    jw.scrape(project=project, number=args.number)
             else:
                 jw = JiraWrapper()
-                jw.scrape(project=project)
+                if args.relationships_only:
+                    jw.map_relationships(project=project)
+                else:
+                    jw.scrape(project=project)
     else:
+
+        if args.relationships_only:
+            raise Exception('can not map relationships in parallel mode yet')
+
         # do 4 at a time ...
         total = 4
         args_list = projects[:]

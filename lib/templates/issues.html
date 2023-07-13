@@ -1,0 +1,129 @@
+<!DOCTYPE HTML>
+<html>
+
+    <head>
+        <title>jira tickets</title>
+		<script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+		<script src="https://cdn.jsdelivr.net/npm/popper.js@1.14.7/dist/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+		<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+        <link rel="stylesheet" href="//cdn.datatables.net/1.11.5/css/jquery.dataTables.min.css" crossorigin="anonymous"></link>
+        <script src="//cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
+
+        <link rel="stylesheet" href="/static/css/navbar.css" crossorigin="anonymous"></link>
+
+		<script>
+
+            // https://stackoverflow.com/a/6491621
+            Object.byString = function(o, s) {
+                //console.log('bystring', o, s);
+                if (o === null) {
+                    return;
+                };
+
+                s = s.replace(/\[(\w+)\]/g, '.$1'); // convert indexes to properties
+                s = s.replace(/^\./, '');           // strip a leading dot
+                var a = s.split('.');
+                //console.log('a', a);
+                for (var i = 0, n = a.length; i < n; ++i) {
+                    var k = a[i];
+                    //console.log('k', k);
+                    if (o !== null && k in o) {
+                        o = o[k];
+                    } else {
+                        return;
+                    }
+                }
+                return o;
+            }
+
+            function dateSplit(ts) {
+                console.log('splitting', ts);
+                const parts = ts.split('T');
+                return parts[0];
+            };
+
+			var columns = [
+                "created",
+                "updated",
+                "created_by",
+                "assigned_to",
+                "type",
+                "priority",
+                "state",
+                "summary",
+            ];
+
+			function onLoad() {
+
+                queryString = window.location.search;
+                const urlParams = new URLSearchParams(queryString);
+                let projects = urlParams.getAll("project");
+
+                const apiParams = new URLSearchParams();
+                projects.forEach(value => {
+                    apiParams.append("project", value);
+                });
+                const apiString = apiParams.toString();
+                const apiUrl = `/api/tickets/?${apiString}`;
+
+				fetch(apiUrl, {
+					method: "GET",
+					headers: {'Content-Type': 'application/json'}, 
+				}).then(res => res.json()).then(res => {
+					//console.log("Request complete! response:", res);
+					var newHTML = '';
+					for (let i = 0; i < res.length; i++) {
+						//console.log(res[i]);
+						let issueUrl = 'https://issues.redhat.com/browse/' + res[i].key;
+						newHTML += '<tr>';
+						newHTML += `<td><a href="${issueUrl}">${res[i].key}</a></td>`;
+						for (let j = 0; j < columns.length; j++) {
+							// newHTML += `<td>${res[i].fields[columns[j]]}</td>`;
+                            let val = Object.byString(res[i], columns[j]);
+                            if (columns[j]  === 'fields.created' || columns[j] === 'fields.updated') {
+                                val = dateSplit(val);
+                            };
+							newHTML += `<td>${val}</td>`;
+						};
+						newHTML += '</tr>';
+					}
+					document.getElementById('tickets-table-body').innerHTML = newHTML;
+					$('#tickets-table').DataTable({
+                        "order": [[2, 'desc']],
+                        "pageLength": 50
+                    });
+				});
+			};
+
+		</script>
+
+
+    </head>
+
+    <body onload="onLoad();" style="width:100%">
+
+        {% include 'navbar.html' %}
+
+		<div id="tickets-container" style="width:100%">
+			<table id='tickets-table' style="width:100%">
+				<thead>
+					<th>ID</th>
+					<th>created</th>
+					<th>updated</th>
+					<th>reporter</th>
+					<th>assignee</th>
+					<th>type</th>
+					<th>priority</th>
+					<th>status</th>
+					<th>summary</th>
+				</thead>
+				<tbody id="tickets-table-body">
+				<tbody>	
+			</table>
+		</div>
+    </body>
+
+</html>
+

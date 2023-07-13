@@ -47,12 +47,16 @@ class StatsWrapper:
         atexit.register(self.conn.close)
 
 
-    def _get_project_issue_history(self, project):
+    def _get_projects_issue_history(self, projects):
+
+        placeholders = []
+        for project in projects:
+            placeholders.append('%s')
+        where_clause = "project = " + " OR project = ".join(placeholders)
+        qs = f'SELECT number,state,created,updated,data FROM jira_issues WHERE {where_clause}'
+
         with self.conn.cursor() as cur:
-            cur.execute(
-                'SELECT number,state,created,updated,data FROM jira_issues WHERE project = %s',
-                (project,)
-            )
+            cur.execute(qs,(projects))
             for row in cur.fetchall():
                 ds = {
                     'number': row[0],
@@ -64,7 +68,7 @@ class StatsWrapper:
                 }
                 yield ds
 
-    def burndown(self, project, frequency='monthly'):
+    def burndown(self, projects, frequency='monthly'):
 
         assert frequency in ['weekly', 'monthly']
         frequency = frequency[0].upper()
@@ -72,7 +76,7 @@ class StatsWrapper:
         utc_timezone = pytz.timezone("UTC")
 
         open_close_events = []
-        for issue in self._get_project_issue_history(project):
+        for issue in self._get_projects_issue_history(projects):
             if issue['updated'] is None or issue['created'] is None:
                 continue
             created = issue['created'].astimezone(utc_timezone)
@@ -98,20 +102,20 @@ class StatsWrapper:
 def main():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--project', help='which project to make stats for')
+    parser.add_argument('--project', help='which project to make stats for', action="append", dest="projects")
     parser.add_argument('--frequency', choices=['monthly', 'weekly'], default='monthly')
     parser.add_argument('action', choices=['burndown'])
 
     args = parser.parse_args()
 
-    projects = PROJECTS[:]
-    if args.project:
-        projects = [args.project]
+    #projects = PROJECTS[:]
+    #if args.project:
+    #    projects = [args.project]
 
     sw = StatsWrapper()
 
     if args.action == 'burndown':
-        print(sw.burndown(args.project, frequency=args.frequency))
+        print(sw.burndown(args.projects, frequency=args.frequency))
 
 
 if __name__ == "__main__":
