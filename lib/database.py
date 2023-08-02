@@ -46,6 +46,19 @@ CREATE TABLE jira_issue_relationships (
 );
 '''
 
+ISSUE_EVENT_SCHEMA = '''
+CREATE TABLE jira_issue_events (
+  id VARCHAR(50),
+  author VARCHAR(50),
+  project VARCHAR(50),
+  number INTEGER,
+  key VARCHAR(50),
+  created TIMESTAMP,
+  data JSONB,
+  CONSTRAINT unique_eventid UNIQUE (id)
+);
+'''
+
 ISSUE_INSERT_QUERY = """
     INSERT INTO jira_issues (
         datafile,
@@ -140,6 +153,16 @@ class JiraDatabaseWrapper:
         connstring = f'host={self.IP} dbname={self.DB} user={self.USER} password={self.PASS}'
         return psycopg.connect(connstring)
 
+    def check_table_and_create(self, tablename):
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("select * from information_schema.tables where table_name=%s", (tablename,))
+            exists = bool(cur.rowcount)
+            if not exists:
+                if tablename == 'jira_issue_events':
+                    cur.execute(ISSUE_EVENT_SCHEMA)
+            conn.commit()
+
     def load_database(self):
         conn = self.get_connection()
 
@@ -147,6 +170,7 @@ class JiraDatabaseWrapper:
         with conn.cursor() as cur:
             cur.execute(ISSUE_SCHEMA)
             cur.execute(ISSUE_RELATIONSHIP_SCHEMA)
+            cur.execute(ISSUE_EVENT_SCHEMA)
             conn.commit()
 
 

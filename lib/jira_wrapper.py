@@ -37,139 +37,13 @@ from utils import (
     history_to_dict,
 )
 
+from data_wrapper import DataWrapper
+from diskcache_wrapper import DiskCacheWrapper
+from exceptions import HistoryFetchFailedException
+
 
 rlog = logging.getLogger('urllib3')
 rlog.setLevel(logging.DEBUG)
-
-
-class HistoryFetchFailedException(Exception):
-    def __init__(self, message="Failed to fetch history data."):
-        self.message = message
-        super().__init__(self.message)
-
-
-class DiskCacheWrapper:
-
-    def __init__(self, cachedir):
-        self.cachedir = cachedir
-
-    def write_issue(self, data):
-        fn = os.path.join(self.cachedir, 'by_id', data['id'] + '.json')
-        dn = os.path.dirname(fn)
-        if not os.path.exists(dn):
-            os.makedirs(dn)
-        with open(fn, 'w') as f:
-            f.write(json.dumps(data, indent=2, sort_keys=True))
-
-        # make a by key symlink
-        dn = os.path.join(self.cachedir, 'by_key')
-        if not os.path.exists(dn):
-            os.makedirs(dn)
-        src = '../by_id/' + os.path.basename(fn)
-        dst = f'{data["key"]}.json'
-        subprocess.run(f'rm -f {dst}; ln -s {src} {dst}', cwd=dn, shell=True)
-
-        return fn
-
-    def get_fn_for_issue_by_key(self, key):
-        path = os.path.join(self.cachedir, 'by_key', f'{key}.json')
-        path = os.path.abspath(path)
-        if not os.path.exists(path):
-            return None
-        return os.path.realpath(path)
-
-
-class DataWrapper:
-    def __init__(self, fn):
-        self.datafile = fn
-        if not os.path.exists(self.datafile):
-            raise Exception(f'{self.datafile} does not exist')
-
-        with open(self.datafile, 'r') as f:
-            self._data = json.loads(f.read())
-
-        self.project = self._data['key'].split('-')[0]
-        self.number = int(self._data['key'].split('-')[-1])
-
-        ts = os.path.getctime(self.datafile)
-        self.fetched = datetime.datetime.fromtimestamp(ts)
-
-        self._history = copy.deepcopy(self._data['history'])
-        self._data.pop('history', None)
-
-        self.assigned_to = None
-        if self._data['fields']['assignee']:
-            self.assigned_to = self._data['fields']['assignee']['name']
-
-    @property
-    def id(self):
-        return self._data['id']
-
-    @property
-    def raw_data(self):
-        return self._data
-
-    @property
-    def data(self):
-        return json.dumps(self._data)
-
-    @property
-    def raw_history(self):
-        return self._history
-
-    @property
-    def history(self):
-        return json.dumps(self._history)
-
-    @property
-    def key(self):
-        return self._data['key']
-
-    @property
-    def url(self):
-        return self._data['self']
-
-    @property
-    def created_by(self):
-        return self._data['fields']['creator']['name']
-
-    @property
-    def type(self):
-        return self._data['fields']['issuetype']['name']
-
-    @property
-    def summary(self):
-        return self._data['fields']['summary']
-
-    @property
-    def description(self):
-        return self._data['fields']['description'] or ''
-
-    @property
-    def created(self):
-        return self._data['fields']['created']
-
-    @property
-    def updated(self):
-        return self._data['fields']['updated']
-
-    @property
-    def closed(self):
-
-        if not self.state == 'Closed':
-            return None
-
-        return self._data['fields']['resolutiondate']
-
-    @property
-    def state(self):
-        return self._data['fields']['status']['name']
-
-    @property
-    def priority(self):
-        if self._data['fields']['priority'] is None:
-            return None
-        return self._data['fields']['priority']['name']
 
 
 class JiraWrapper:
@@ -182,6 +56,7 @@ class JiraWrapper:
     #jira_issues = None
     #jira_issues_objects = None
     cachedir = '.data'
+    ids = None
 
     def __init__(self):
 
@@ -189,6 +64,7 @@ class JiraWrapper:
 
         self.project = None
         self.processed = {}
+        self.ids = []
 
         self.jdbw = JiraDatabaseWrapper()
         self.conn = self.jdbw.get_connection()
@@ -217,6 +93,120 @@ class JiraWrapper:
     def map_relationships(self, project):
         self.project = project
         self.process_relationships()
+
+    def map_events(self, ids=None):
+
+        """
+        ISSUE_EVENT_SCHEMA = '''
+        CREATE TABLE jira_issue_events (
+          id VARCHAR(50),
+          author VARCHAR(50),
+          project VARCHAR(50),
+          number INTEGER,
+          key VARCHAR(50),
+          created TIMESTAMP,
+          data JSONB,
+          CONSTRAINT unique_eventid UNIQUE (id)
+        );
+        '''
+        """
+
+        self.jdbw.check_table_and_create('jira_issue_events')
+
+        with self.conn.cursor() as cur:
+
+            cur.execute('SELECT id FROM jira_issue_events ORDER BY id')
+            rows = cur.fetchall()
+            idmap = dict((x[0], None) for x in rows)
+
+            for fn in self.dcw.issue_files:
+
+                # TBD: use the outter scraper to only process what was fetched
+                this_id = os.path.basename(fn).replace('.json', '')
+                if ids and this_id not in ids:
+                    continue
+
+                print(fn)
+                with open(fn, 'r') as f:
+                    ds = json.loads(f.read())
+                key = ds['key']
+                project = ds['key'].split('-')[0]
+                number = int(ds['key'].split('-')[1])
+                history = ds.get('history', [])
+                if history is None:
+                    continue
+
+                # get the first key in the key
+                this_key = key
+                this_project = project
+                this_number = number
+                for event_group in history:
+                    for eid,event_item in enumerate(event_group['items']):
+                        if event_item['field'] == 'Key':
+                            this_key = event_item['fromString']
+                            this_project = this_key.split('-')[0]
+                            this_number = int(this_key.split('-')[1])
+
+                # 2023-03-28T16:09:38.233+0000
+                created = ds['fields']['created']
+                create_event = {
+                    'id': ds['id'] + '_OPENED',
+                    'author': {
+                        'displayName': ds['fields']['creator']['displayName'],
+                        'key': ds['fields']['creator']['key'],
+                        'name': ds['fields']['creator']['name'],
+                    },
+                    'created': created,
+                    'items': [
+                        {
+                            'field': 'status',
+                            'fieldtype': 'jira',
+                            'from': None,
+                            'fromString': None,
+                            'to': 'new',
+                            'toString': 'New',
+                        }
+                    ]
+                }
+                history.insert(0, create_event)
+
+                for event_group in history:
+                    author = event_group['author']['name']
+                    created = event_group['created']
+                    id_prefix = event_group['id']
+                    for eid,event_item in enumerate(event_group['items']):
+                        this_id = id_prefix + "_" + str(eid)
+                        if this_id in idmap:
+                            continue
+
+                        cur.execute(
+                            '''INSERT INTO jira_issue_events (
+                                id,
+                                author,
+                                project,
+                                number,
+                                key,
+                                created,
+                                data
+                            ) VALUES (
+                                %s, %s, %s, %s, %s, %s, %s
+                            )''',
+                            (
+                                this_id, author,
+                                this_project,
+                                this_number,
+                                this_key,
+                                created,
+                                json.dumps(event_item),
+                            )
+                        )
+                        self.conn.commit()
+
+                        # iterate to the next key
+                        if event_item['field'] == 'Key':
+                            this_key = event_item['toString']
+                            this_project = this_key.split('-')[0]
+                            this_number = int(this_key.split('-')[1])
 
     def store_issue_column(self, project, number, colname, value):
         with self.conn.cursor() as cur:
@@ -675,13 +665,18 @@ def main():
     parser.add_argument('--project', help='which project to scrape', action='append', dest='projects')
     parser.add_argument('--number', help='which number scrape', type=int, default=None)
     parser.add_argument('--relationships-only', action='store_true')
+    parser.add_argument('--events-only', action='store_true')
     args = parser.parse_args()
 
     projects = PROJECTS[:]
     if args.projects:
         projects = [x for x in projects if x in args.projects]
 
-    if args.serial or len(projects) == 1:
+    if args.events_only:
+        jw = JiraWrapper()
+        jw.map_events()
+
+    elif args.serial or len(projects) == 1:
         # do one at a time ...
         for project in projects:
             if args.number:
@@ -700,6 +695,8 @@ def main():
 
         if args.relationships_only:
             raise Exception('can not map relationships in parallel mode yet')
+        if args.events_only:
+            raise Exception('can not map events in parallel mode yet')
 
         # do 4 at a time ...
         total = 4

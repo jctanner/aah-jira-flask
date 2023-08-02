@@ -66,6 +66,11 @@ def ui_burndown():
     return render_template('burndown.html')
 
 
+@app.route('/ui/churn')
+def ui_churn():
+    return render_template('churn.html')
+
+
 @app.route('/api/projects')
 def projects():
 
@@ -212,13 +217,46 @@ def tickets_burndown():
     #data = sw.burndown('AAH', frequency='monthly')
     #data = sw.burndown('AAH', frequency='weekly')
     data = json.loads(data)
+
+    '''
+    keys = list(data.keys())
+    keymap = [(x, x.split('T')[0]) for x in keys]
+
+    print(f'keys: {keys}')
+    print(f'keymap: {keymap}')
+
+    for km in keymap:
+        data[km[1]] = data[km[0]]
+        data.pop(km[0], None)
+    '''
+
+    return jsonify(data)
+
+
+@app.route('/api/tickets_churn')
+@app.route('/api/tickets_churn/')
+def tickets_churn():
+
+    projects = request.args.getlist("project")
+    if not projects:
+        return redirect('/api/tickets_churn/?project=AAH')
+    projects = [x for x in projects if x != 'null']
+    fields = request.args.getlist("field")
+    print(fields)
+
+    sw = StatsWrapper()
+    data = sw.churn(projects, frequency='monthly', fields=fields)
+    #data = sw.burndown('AAH', frequency='monthly')
+    #data = sw.burndown('AAH', frequency='weekly')
+    data = json.loads(data)
+    '''
     keys = list(data.keys())
     keymap = [(x, x.split('T')[0]) for x in keys]
     for km in keymap:
         data[km[1]] = data[km[0]]
         data.pop(km[0], None)
+    '''
     return jsonify(data)
-
 
 
 if __name__ == '__main__':
