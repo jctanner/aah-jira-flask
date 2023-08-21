@@ -42,7 +42,8 @@ def root():
 
 @app.route('/ui')
 def ui():
-    return render_template('main.html')
+    #return render_template('main.html')
+    return redirect('/ui/issues')
 
 
 @app.route('/ui/issues')

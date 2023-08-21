@@ -36,6 +36,7 @@ from utils import (
     history_items_to_dict,
     history_to_dict,
 )
+import psycopg
 
 from data_wrapper import DataWrapper
 from diskcache_wrapper import DiskCacheWrapper
@@ -348,10 +349,11 @@ class JiraWrapper:
             rows = cur.fetchall()
 
         if rows:
-            fetched = rows[0][2].replace(tzinfo=timezone.utc)
-            history = rows[0][3]
-            if updated <= fetched:
-                return history
+            if rows[0][2]:
+                fetched = rows[0][2].replace(tzinfo=timezone.utc)
+                history = rows[0][3]
+                if updated <= fetched:
+                    return history
 
         logger.info(f'attempting to get history for {project}-{number}')
         try:
@@ -537,18 +539,24 @@ class JiraWrapper:
         qs = 'INSERT INTO jira_issues'
         qs += "(" + ",".join(ISSUE_COLUMN_NAMES) + ")"
         qs += " VALUES (" + ('%s,' * len(ISSUE_COLUMN_NAMES)).rstrip(',') + ")"
-        qs += " ON CONFLICT (project, number) DO UPDATE SET "
-        qs += ' '.join([f"{x}=EXCLUDED.{x}," for x in ISSUE_COLUMN_NAMES if x not in ['project', 'number']])
+        qs += " ON CONFLICT (id) DO UPDATE SET "
+        qs += ' '.join([f"{x}=EXCLUDED.{x}," for x in ISSUE_COLUMN_NAMES if x not in ['id']])
         qs = qs.rstrip(',')
 
         args = [getattr(dw, x) for x in ISSUE_COLUMN_NAMES]
 
+        logger.info(qs)
+
         with self.conn.cursor() as cur:
-            cur.execute(
-                qs,
-                tuple(args)
-            )
-            self.conn.commit()
+            try:
+                cur.execute(
+                    qs,
+                    tuple(args)
+                )
+                self.conn.commit()
+            except psycopg.errors.UniqueViolation as e:
+                logger.exception(e)
+                cur.execute('rollback')
 
     def process_relationships(self):
 
