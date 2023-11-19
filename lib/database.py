@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import atexit
 import copy
 import datetime
 import glob
@@ -9,6 +10,27 @@ import os
 import psycopg
 
 from logzero import logger
+
+
+DOWNLOAD_LOG_SCHEMA = '''
+CREATE TABLE download_history (
+    fetched TIMESTAMP,
+    success BOOLEAN,
+    key VARCHAR(50),
+    type VARCHAR(50)
+)
+'''
+
+
+ISSUE_MOVES_SCHEMA = '''
+CREATE TABLE jira_issue_moves (
+    issue_id VARCHAR(50),
+    src VARCHAR(50),
+    dst VARCHAR(50),
+    date TIMESTAMP,
+    CONSTRAINT unique_move_src_dst UNIQUE (src, dst)
+)
+'''
 
 
 ISSUE_SCHEMA = '''
@@ -96,16 +118,27 @@ class JiraDatabaseWrapper:
     PASS = 'jira'
     DB = 'jira'
     IP = None
+    _conn = None
 
     def __init__(self):
         self.get_ip()
 
-    def start_database(self):
+    def start_database(self, clean=False):
         client = docker.APIClient()
 
         for container in client.containers(all=True):
             name = container['Names'][0].lstrip('/')
             if name == self.NAME:
+
+                if container['State'] == 'running' and not clean:
+                    self.get_ip()
+                    return
+
+                if container['State'] != 'running' and not clean:
+                    client.start(self.NAME)
+                    self.get_ip()
+                    return
+
                 if container['State'] != 'exited':
                     logger.info(f'kill {self.NAME}')
                     client.kill(self.NAME)
@@ -163,14 +196,106 @@ class JiraDatabaseWrapper:
             conn.commit()
 
     def load_database(self):
-        conn = self.get_connection()
+        try:
+            conn = self.get_connection()
 
-        # create schema ...
-        with conn.cursor() as cur:
-            cur.execute(ISSUE_SCHEMA)
-            cur.execute(ISSUE_RELATIONSHIP_SCHEMA)
-            cur.execute(ISSUE_EVENT_SCHEMA)
-            conn.commit()
+            # create schema ...
+            with conn.cursor() as cur:
+                cur.execute(DOWNLOAD_LOG_SCHEMA)
+                cur.execute(ISSUE_MOVES_SCHEMA)
+                cur.execute(ISSUE_SCHEMA)
+                cur.execute(ISSUE_RELATIONSHIP_SCHEMA)
+                cur.execute(ISSUE_EVENT_SCHEMA)
+                conn.commit()
+        except Exception as e:
+            logger.exception(e)
+
+    @property
+    def conn(self):
+        if self._conn is None:
+            self._conn = self.get_connection()
+            atexit.register(self._conn.close)
+        return self._conn
+
+    # ABSTRACTIONS ...
+
+    def store_issue_column(self, project, number, colname, value):
+        with self.conn.cursor() as cur:
+            sql = f''' UPDATE jira_issues SET {colname} = %s WHERE project = %s AND number = %s '''
+            cur.execute(sql, (value, project, number,))
+            self.conn.commit()
+
+    def get_issue_column(self, project, number, colname):
+        with self.conn.cursor() as cur:
+            sql = f''' SELECT {colname} FROM jira_issues WHERE project = %s AND number = %s '''
+            cur.execute(sql, (project, number,))
+            rows = cur.fetchall()
+        if not rows:
+            return None
+        value = rows[0][0]
+        return value
+
+    def get_issue_field(self, project, number, field_name):
+        data = self.get_issue_column(project, number, 'data')
+        if data is None:
+            return None
+        if not isinstance(data, dict):
+            ds = json.loads(data)
+        else:
+            ds = data
+        return ds['fields'].get(field_name)
+
+    def store_issue_valid(self, project, number):
+        with self.conn.cursor() as cur:
+            sql = ''' UPDATE jira_issues SET is_valid = %s WHERE project = ? AND number = ? '''
+            cur.execute(sql, (True, project, number,))
+            self.conn.commit()
+
+    def store_issue_invalid(self, project, number):
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT count(number) FROM jira_issues WHERE project = %s AND number = %s', (project, number,))
+            found = cur.fetchall()
+            if found[0][0] == 0:
+                sql = ''' INSERT INTO jira_issues(project,number,is_valid) VALUES(%s,%s,%s) '''
+                cur.execute(sql, (project, number, False))
+            else:
+                sql = ''' UPDATE jira_issues SET is_valid = %s WHERE project = %s AND number = %s '''
+                cur.execute(sql, (False, project, number,))
+            self.conn.commit()
+
+    def get_known_numbers(self, project):
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT number FROM jira_issues WHERE project = %s', (project,))
+            rows = cur.fetchall()
+        return [x[0] for x in rows]
+
+    def get_invalid_numbers(self, project):
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT number FROM jira_issues WHERE project = %s AND is_valid = %s', (project, False,))
+            rows = cur.fetchall()
+        return [x[0] for x in rows]
+
+    def get_fetched_map(self):
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT id,key,fetched,updated FROM jira_issues')
+            rows = cur.fetchall()
+
+        fmap = {}
+        for row in rows:
+            fmap[row[0]] = {
+                'id': row[0],
+                'key': row[1],
+                'fetched': row[2],
+                'updated': row[3]
+            }
+        return fmap
+
+    def get_event_ids_map(self):
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT id FROM jira_issue_events ORDER BY id')
+            rows = cur.fetchall()
+            idmap = dict((x[0], None) for x in rows)
+        return idmap
 
 
 def main():

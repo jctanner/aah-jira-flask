@@ -20,6 +20,7 @@ import subprocess
 import time
 from datetime import timezone
 import jira
+import json
 
 import requests
 
@@ -78,12 +79,20 @@ class DataWrapper:
         return json.dumps(self._data)
 
     @property
+    def fields(self):
+        return self._data['fields']
+
+    @property
     def raw_history(self):
         return self._history
 
     @property
     def history(self):
         return json.dumps(self._history)
+
+    @property
+    def events(self):
+        return self._history
 
     @property
     def key(self):

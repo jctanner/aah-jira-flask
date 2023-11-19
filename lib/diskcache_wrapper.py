@@ -46,6 +46,8 @@ rlog.setLevel(logging.DEBUG)
 
 class DiskCacheWrapper:
 
+    _count = None
+
     def __init__(self, cachedir):
         self.cachedir = cachedir
 
@@ -75,8 +77,24 @@ class DiskCacheWrapper:
         return os.path.realpath(path)
 
     @property
+    def count(self):
+        if self._count is None:
+            basedir = os.path.join(self.cachedir, 'by_id')
+            pid = subprocess.run(f'find {basedir} -type f | wc -l', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self._count = int(pid.stdout.decode('utf-8'))
+
+        return self._count
+
+    @property
     def issue_files(self):
         for root, dirs, files in os.walk(os.path.join(self.cachedir, 'by_id')):
             for fn in files:
                 if fn.endswith('.json'):
                     yield os.path.join(root, fn)
+
+    @property
+    def data_wrappers(self):
+        for root, dirs, files in os.walk(os.path.join(self.cachedir, 'by_id')):
+            for fn in files:
+                if fn.endswith('.json'):
+                    yield DataWrapper(os.path.join(root, fn))

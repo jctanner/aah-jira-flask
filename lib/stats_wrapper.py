@@ -15,6 +15,7 @@ import copy
 import glob
 import json
 import logging
+import math
 import os
 import pytz
 import time
@@ -37,6 +38,17 @@ from utils import (
     history_items_to_dict,
     history_to_dict
 )
+
+
+def accumulate_enumerated_backlog_from_row(row):
+
+    total = 0
+    total += int(row.opened)
+    total += int(row.moved_in)
+    total -= int(row.closed)
+    total -= int(row.moved_out)
+
+    return total
 
 
 class StatsWrapper:
@@ -70,17 +82,61 @@ class StatsWrapper:
 
     def get_open_close_move_events(self, projects):
 
+
+        '''
+          project   |       key       |                                                            data
+        ------------+-----------------+-----------------------------------------------------------------------------------------------------------------------------
+         THEEDGE    | THEEDGE-924     | {"to": null, "from": null, "field": "Key", "toString": "THEEDGE-924", "fieldtype": "jira", "fromString": "RHELPLAN-88851"}
+         THEEDGE    | THEEDGE-924     | {"to": null, "from": null, "field": "Key", "toString": "AAP-6350", "fieldtype": "jira", "fromString": "THEEDGE-924"}
+         AAP        | AAP-3866        | {"to": null, "from": null, "field": "Key", "toString": "ANSTRAT-307", "fieldtype": "jira", "fromString": "AAP-3866"}
+         HATSTRAT   | HATSTRAT-70     | {"to": null, "from": null, "field": "Key", "toString": "TELCOSTRAT-42", "fieldtype": "jira", "fromString": "HATSTRAT-70"}
+         HATSTRAT   | HATSTRAT-233    | {"to": null, "from": null, "field": "Key", "toString": "TELCOSTRAT-95", "fieldtype": "jira", "fromString": "HATSTRAT-233"}
+         OCPBU      | OCPBU-493       | {"to": null, "from": null, "field": "Key", "toString": "OCPSTRAT-356", "fieldtype": "jira", "fromString": "OCPBU-493"}
+         OCPBU      | OCPBU-372       | {"to": null, "from": null, "field": "Key", "toString": "OCPBU-372", "fieldtype": "jira", "fromString": "NE-1238"}
+         OCPBU      | OCPBU-372       | {"to": null, "from": null, "field": "Key", "toString": "OCPSTRAT-375", "fieldtype": "jira", "fromString": "OCPBU-372"}
+        '''
+
         utc_timezone = pytz.timezone("UTC")
 
+        '''
         where_clause = ''
         if projects:
             placeholders = []
             for project in projects:
                 placeholders.append('%s')
             where_clause = "project = " + " OR project = ".join(placeholders)
+        '''
 
+        '''
         qs = f'SELECT created,data,project FROM jira_issue_events WHERE ({where_clause})'
         qs += " AND (data->>'field' = 'Key' OR (data->>'field' = 'status' AND ( data->>'toString'='New' OR data->>'toString'='Closed' )))"
+        '''
+
+        where_clause = ''
+        if projects:
+            placeholders = []
+            for project in projects:
+                placeholders.append(f"'{project}'")
+            where_clause = "project = " + " OR project = ".join(placeholders)
+
+        where_clause_1 = ''
+        if projects:
+            placeholders = []
+            for project in projects:
+                placeholders.append('%s')
+            where_clause_1 = "project = " + " OR project = ".join(placeholders)
+
+        placeholders_2 = []
+        if projects:
+            for project in projects:
+                _qs = f"(data->>'toString' like '{project}-%' OR data->>'fromString' like '{project}-%')"
+                placeholders_2.append(_qs)
+
+        qs = f'SELECT created,data,project FROM jira_issue_events WHERE (({where_clause})'
+        qs += " AND (data->>'field' = 'Key' OR (data->>'field' = 'status' AND ( data->>'toString'='New' OR data->>'toString'='Closed' ))))"
+        if placeholders_2:
+            qs += " OR "
+            qs += '(' + " OR ".join(placeholders_2) + ')'
 
         event = {
             'timestamp': None,
@@ -92,7 +148,10 @@ class StatsWrapper:
 
         events = []
         with self.conn.cursor() as cur:
-            cur.execute(qs,(projects))
+
+            #cur.execute(qs,(projects))
+            cur.execute(qs)
+
             for row in cur.fetchall():
 
                 ev = copy.deepcopy(event)
@@ -112,7 +171,12 @@ class StatsWrapper:
                         import epdb; epdb.st()
 
                 elif row[1]['field'] == 'Key':
-                    dst_project = row[1]['toString'].split('-')[-1]
+
+                    src_project = row[1]['fromString'].split('-')[0]
+                    dst_project = row[1]['toString'].split('-')[0]
+
+                    #print(f'{src_project} -> {dst_project}')
+
                     if dst_project in projects:
                         ev['moved_in'] = 1
                         events.append(ev)
@@ -120,6 +184,7 @@ class StatsWrapper:
                         ev['moved_out'] = 1
                         events.append(ev)
 
+        #import epdb; epdb.st()
         events = sorted(events, key=lambda x: x['timestamp'])
         return events
 
@@ -157,6 +222,20 @@ class StatsWrapper:
         ocm_df = ocm_df.sort_values('timestamp')
         ocm_grouped = ocm_df.groupby(ocm_df['timestamp'].dt.to_period(frequency))\
             .agg({'opened': 'sum', 'closed': 'sum', 'moved_in': 'sum', 'moved_out': 'sum'})
+
+        ocm_grouped['enumerated'] = ocm_grouped.apply(accumulate_enumerated_backlog_from_row, axis=1)
+        ocm_grouped['enumerated_backlog'] = ocm_grouped['enumerated'].cumsum()
+
+        '''
+        # df.apply(lambda row: custom_function(row, df.shift()), axis=1)
+        shifted_df = ocm_grouped.shift()
+        ocm_grouped['enumerated_backlog'] = ocm_grouped.apply(
+            lambda row: accumulate_enumerated_backlog_from_row(row, shifted_df.loc[row.name]),
+            axis=1
+        )
+        '''
+
+        #import epdb; epdb.st()
 
         # cumulative sum for backlog ...
         backlog_grouped = df['backlog'].groupby(pd.Grouper(freq=frequency)).sum().cumsum()
@@ -220,17 +299,21 @@ class StatsWrapper:
         print(f'raw column count: {count}')
 
         # reduce the column count ...
-        if fields:
-            return grouped.to_json(date_format='iso', indent=2)
+        #if fields:
+        #    return grouped.to_json(date_format='iso', indent=2)
 
         clean = grouped.loc[:, (grouped != 0).any(axis=0)]
+
         for x in range(1, 50):
-            clean2 = clean.loc[:, (clean.cumsum() >= x).all()]
-            count = clean2.shape[1]
-            print(f'threshold of {x} left {count} columns')
-            if count < 20:
-                clean = clean2
+            reduced = clean.loc[:, (clean.cumsum() >= x).all()]
+            column_count = reduced.shape[1]
+            print(f'threshold of {x} left {column_count} columns')
+            if column_count < 30:
+                clean = reduced
                 break
+
+        if fields:
+            return grouped.to_json(date_format='iso', indent=2)
 
         return clean.to_json(date_format='iso', indent=2)
 

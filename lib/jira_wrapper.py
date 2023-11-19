@@ -11,12 +11,9 @@ selenium to navigate through the pages and to input the data.
 import atexit
 import argparse
 import datetime
-import copy
-import glob
 import json
 import logging
 import os
-import subprocess
 import time
 from datetime import timezone
 import jira
@@ -25,15 +22,11 @@ import requests
 
 import concurrent.futures
 
-from pprint import pprint
 from logzero import logger
 
 from constants import PROJECTS, ISSUE_COLUMN_NAMES
 from database import JiraDatabaseWrapper
-from database import ISSUE_INSERT_QUERY
 from utils import (
-    sortable_key_from_ikey,
-    history_items_to_dict,
     history_to_dict,
 )
 import psycopg
@@ -42,9 +35,13 @@ from data_wrapper import DataWrapper
 from diskcache_wrapper import DiskCacheWrapper
 from exceptions import HistoryFetchFailedException
 
-
+logging.basicConfig()
+logging.getLogger().setLevel(logging.DEBUG)
 rlog = logging.getLogger('urllib3')
 rlog.setLevel(logging.DEBUG)
+requests_log = logging.getLogger("requests.packages.urllib3")
+requests_log.setLevel(logging.DEBUG)
+requests_log.propagate = True
 
 
 class JiraWrapper:
@@ -83,19 +80,43 @@ class JiraWrapper:
         # validate auth ...
         self.jira_client.myself()
 
-    def scrape(self, project=None, number=None):
+    def load_issues_and_events_from_disk(self):
+        self.jdbw.check_table_and_create('jira_issues')
+
+
+        fmap = self.jdbw.get_fetched_map()
+        emap = self.jdbw.get_event_ids_map()
+        total = self.dcw.count
+
+        count = 0
+        for ifile in self.dcw.issue_files:
+            count += 1
+
+            datawrapper = DataWrapper(ifile)
+            logger.info(f'{total}|{count} {datawrapper.key}')
+
+            if datawrapper.id not in fmap or datawrapper.fetched > fmap[datawrapper.id]['fetched']:
+                self.store_issue_to_database_by_filename(ifile)
+
+            self.map_events(idmap=emap, datawrappers=[datawrapper], logit=False)
+            #import epdb; epdb.st()
+
+        #self.map_events()
+        self.process_relationships()
+
+    def scrape(self, project=None, number=None, full=True):
         self.project = project
         self.number = number
 
         logger.info('scrape jira issues')
-        self.scrape_jira_issues()
+        self.scrape_jira_issues(full=full)
         self.process_relationships()
 
     def map_relationships(self, project):
         self.project = project
         self.process_relationships()
 
-    def map_events(self, ids=None):
+    def map_events(self, ids=None, idmap=None, datawrappers=None, logit=True):
 
         """
         ISSUE_EVENT_SCHEMA = '''
@@ -114,33 +135,48 @@ class JiraWrapper:
 
         self.jdbw.check_table_and_create('jira_issue_events')
 
+        if datawrappers is None:
+            datawrappers = self.dcw.datawrappers
+
         with self.conn.cursor() as cur:
 
-            cur.execute('SELECT id FROM jira_issue_events ORDER BY id')
-            rows = cur.fetchall()
-            idmap = dict((x[0], None) for x in rows)
+            if idmap is None:
+                cur.execute('SELECT id FROM jira_issue_events ORDER BY id')
+                rows = cur.fetchall()
+                idmap = dict((x[0], None) for x in rows)
 
-            for fn in self.dcw.issue_files:
+            for dw in datawrappers:
 
                 # TBD: use the outter scraper to only process what was fetched
-                this_id = os.path.basename(fn).replace('.json', '')
-                if ids and this_id not in ids:
+                if ids and dw.id not in ids:
                     continue
 
-                print(fn)
-                with open(fn, 'r') as f:
-                    ds = json.loads(f.read())
-                key = ds['key']
-                project = ds['key'].split('-')[0]
-                number = int(ds['key'].split('-')[1])
-                history = ds.get('history', [])
-                if history is None:
+                if not dw.events:
                     continue
+
+                if logit:
+                    logger.info(f'map events for {dw.key}:{dw.datafile}')
+
+                #with open(fn, 'r') as f:
+                #    ds = json.loads(f.read())
+                #key = ds['key']
+                key = dw.key
+                project = dw.project
+                number = dw.number
+                #history = ds.get('history', [])
+                #if history is None:
+                #    continue
+
+                if dw.history is None:
+                    continue
+
+                history = dw.events
 
                 # get the first key in the key
                 this_key = key
                 this_project = project
                 this_number = number
+
                 for event_group in history:
                     for eid,event_item in enumerate(event_group['items']):
                         if event_item['field'] == 'Key':
@@ -149,13 +185,13 @@ class JiraWrapper:
                             this_number = int(this_key.split('-')[1])
 
                 # 2023-03-28T16:09:38.233+0000
-                created = ds['fields']['created']
+                created = dw.fields['created']
                 create_event = {
-                    'id': ds['id'] + '_OPENED',
+                    'id': dw.id + '_OPENED',
                     'author': {
-                        'displayName': ds['fields']['creator']['displayName'],
-                        'key': ds['fields']['creator']['key'],
-                        'name': ds['fields']['creator']['name'],
+                        'displayName': dw.fields['creator']['displayName'],
+                        'key': dw.fields['creator']['key'],
+                        'name': dw.fields['creator']['name'],
                     },
                     'created': created,
                     'items': [
@@ -209,62 +245,6 @@ class JiraWrapper:
                             this_project = this_key.split('-')[0]
                             this_number = int(this_key.split('-')[1])
 
-    def store_issue_column(self, project, number, colname, value):
-        with self.conn.cursor() as cur:
-            sql = f''' UPDATE jira_issues SET {colname} = %s WHERE project = %s AND number = %s '''
-            cur.execute(sql, (value, project, number,))
-            self.conn.commit()
-
-    def get_issue_column(self, project, number, colname):
-        with self.conn.cursor() as cur:
-            sql = f''' SELECT {colname} FROM jira_issues WHERE project = %s AND number = %s '''
-            cur.execute(sql, (project, number,))
-            rows = cur.fetchall()
-        if not rows:
-            return None
-        value = rows[0][0]
-        return value
-
-    def get_issue_field(self, project, number, field_name):
-        data = self.get_issue_column(project, number, 'data')
-        if data is None:
-            return None
-        if not isinstance(data, dict):
-            ds = json.loads(data)
-        else:
-            ds = data
-        return ds['fields'].get(field_name)
-
-    def store_issue_valid(self, project, number):
-        with self.conn.cursor() as cur:
-            sql = ''' UPDATE jira_issues SET is_valid = %s WHERE project = ? AND number = ? '''
-            cur.execute(sql, (True, project, number,))
-            self.conn.commit()
-
-    def store_issue_invalid(self, project, number):
-        with self.conn.cursor() as cur:
-            cur.execute('SELECT count(number) FROM jira_issues WHERE project = %s AND number = %s', (project, number,))
-            found = cur.fetchall()
-            if found[0][0] == 0:
-                sql = ''' INSERT INTO jira_issues(project,number,is_valid) VALUES(%s,%s,%s) '''
-                cur.execute(sql, (project, number, False))
-            else:
-                sql = ''' UPDATE jira_issues SET is_valid = %s WHERE project = %s AND number = %s '''
-                cur.execute(sql, (False, project, number,))
-            self.conn.commit()
-
-    def get_known_numbers(self, project):
-        with self.conn.cursor() as cur:
-            cur.execute('SELECT number FROM jira_issues WHERE project = %s', (project,))
-            rows = cur.fetchall()
-        return [x[0] for x in rows]
-
-    def get_invalid_numbers(self, project):
-        with self.conn.cursor() as cur:
-            cur.execute('SELECT number FROM jira_issues WHERE project = %s AND is_valid = %s', (project, False,))
-            rows = cur.fetchall()
-        return [x[0] for x in rows]
-
     def get_issue_with_history(self, issue_key, fallback=False):
 
         count = 1
@@ -289,8 +269,8 @@ class JiraWrapper:
 
     def get_issue(self, issue_key):
 
-        project = issue_key.split('-')[0]
-        number = int(issue_key.split('-')[1])
+        # project = issue_key.split('-')[0]
+        # number = int(issue_key.split('-')[1])
         issue = None
 
         while True:
@@ -304,9 +284,14 @@ class JiraWrapper:
 
             except requests.exceptions.ChunkedEncodingError as e:
                 logger.error(e)
-                time.sleep(2)
+                #time.sleep(2)
+                #import epdb; epdb.st()
+                #logger.error(e)
+                return None
 
             except Exception as e:
+
+                import epdb; epdb.st()
 
                 if hasattr(e, 'msg') and 'unterminated string' in e.msg.lower():
                     logger.error(e.msg)
@@ -358,11 +343,14 @@ class JiraWrapper:
         logger.info(f'attempting to get history for {project}-{number}')
         try:
             h_issue = self.get_issue_with_history(issue.key)
-        except requests.exceptions.JSONDecodeError:
+        except requests.exceptions.JSONDecodeError as e:
+            logger.error(e)
             return
-        except jira.exceptions.JIRAError:
+        except jira.exceptions.JIRAError as e:
+            logger.error(e)
             return
         except HistoryFetchFailedException as e:
+            logger.error(e)
             return
 
         if h_issue is None:
@@ -379,7 +367,7 @@ class JiraWrapper:
 
         return raw_history
 
-    def scrape_jira_issues(self, github_issue_to_find=None):
+    def scrape_jira_issues(self, github_issue_to_find=None, full=True):
 
         self.imap = {}
 
@@ -421,7 +409,7 @@ class JiraWrapper:
         for idl, issue in enumerate(issues):
 
             logger.info(f'{len(issues)}|{idl} {issue.key} {issue.fields.summary}')
-            skey = sortable_key_from_ikey(issue.key)
+            # skey = sortable_key_from_ikey(issue.key)
 
             project = issue.key.split('-')[0]
             number = int(issue.key.split('-')[1])
@@ -457,11 +445,11 @@ class JiraWrapper:
             # skip further fetching on this issue ...
             processed.append(number)
 
-        if self.number:
+        if self.number or not full:
             return
 
         # reconcile state ...
-        known = sorted(self.get_known_numbers(self.project))
+        known = sorted(self.jdbw.get_known_numbers(self.project))
         invalid = sorted(self.get_invalid_numbers(self.project))
         unfetched = []
         if known:
@@ -502,7 +490,7 @@ class JiraWrapper:
             number = mn
             logger.info(f'{len(unfetched)}|{idm} {ikey} sync state ...')
 
-            last_state = self.get_issue_column(project, number, 'state')
+            # last_state = self.get_issue_column(project, number, 'state')
             last_fetched = self.get_issue_column(project, number, 'fetched')
             logger.info(f'{project}-{number} fetched: {last_fetched}')
             if last_fetched is not None:
@@ -536,6 +524,8 @@ class JiraWrapper:
 
         dw = DataWrapper(ifile)
 
+        logger.info(f'write {dw.key} {ifile} to db')
+
         qs = 'INSERT INTO jira_issues'
         qs += "(" + ",".join(ISSUE_COLUMN_NAMES) + ")"
         qs += " VALUES (" + ('%s,' * len(ISSUE_COLUMN_NAMES)).rstrip(',') + ")"
@@ -545,7 +535,7 @@ class JiraWrapper:
 
         args = [getattr(dw, x) for x in ISSUE_COLUMN_NAMES]
 
-        logger.info(qs)
+        # logger.info(qs)
 
         with self.conn.cursor() as cur:
             try:
@@ -558,6 +548,8 @@ class JiraWrapper:
                 logger.exception(e)
                 cur.execute('rollback')
 
+        return dw
+
     def process_relationships(self):
 
         logger.info(f'processing relationships for {self.project}')
@@ -565,7 +557,7 @@ class JiraWrapper:
         if self.number is not None:
             keys = [self.project + '-' + str(self.number)]
         else:
-            known = sorted(self.get_known_numbers(self.project))
+            known = sorted(self.jdbw.get_known_numbers(self.project))
             keys = [self.project + '-' + str(x) for x in known]
 
         logger.info(f'processing relationships for {len(keys)} issue(s) in {self.project}')
@@ -660,27 +652,36 @@ class JiraWrapper:
                 self.conn.commit()
 
 
-def start_scrape(project):
+def start_scrape(project, full=True):
     """Threaded target function."""
     jw = JiraWrapper()
-    jw.scrape(project=project)
+    jw.scrape(project=project, full=full)
 
 
 def main():
 
     parser = argparse.ArgumentParser()
+
+    parser.add_argument('operation', choices=['load', 'fetch'])
+
     parser.add_argument('--serial', action='store_true', help='do not use threading')
     parser.add_argument('--project', help='which project to scrape', action='append', dest='projects')
     parser.add_argument('--number', help='which number scrape', type=int, default=None)
+    parser.add_argument('--full', action='store_true', help='get ALL issues not just updated')
     parser.add_argument('--relationships-only', action='store_true')
     parser.add_argument('--events-only', action='store_true')
     args = parser.parse_args()
+
 
     projects = PROJECTS[:]
     if args.projects:
         projects = [x for x in projects if x in args.projects]
 
-    if args.events_only:
+    if args.operation == 'load':
+        jw = JiraWrapper()
+        jw.load_issues_and_events_from_disk()
+
+    elif args.events_only:
         jw = JiraWrapper()
         jw.map_events()
 
@@ -692,13 +693,13 @@ def main():
                 if args.relationships_only:
                     jw.map_relationships(project=project)
                 else:
-                    jw.scrape(project=project, number=args.number)
+                    jw.scrape(project=project, number=args.number, full=args.full)
             else:
                 jw = JiraWrapper()
                 if args.relationships_only:
                     jw.map_relationships(project=project)
                 else:
-                    jw.scrape(project=project)
+                    jw.scrape(project=project, full=args.full)
     else:
 
         if args.relationships_only:
@@ -709,7 +710,7 @@ def main():
         # do 4 at a time ...
         total = 4
         args_list = projects[:]
-        kwargs_list = [{} for x in projects]
+        kwargs_list = [{'full': args.full} for x in projects]
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=total) as executor:
             future_to_args_kwargs = {
