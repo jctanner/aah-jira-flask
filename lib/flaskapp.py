@@ -21,6 +21,9 @@ from nodes import tickets_to_nodes
 from database import JiraDatabaseWrapper
 from stats_wrapper import StatsWrapper
 
+from constants import ISSUE_COLUMN_NAMES
+
+
 jdbw = JiraDatabaseWrapper()
 conn = jdbw.get_connection()
 atexit.register(conn.close)
@@ -50,6 +53,28 @@ def ui():
 @app.route('/ui/issues/')
 def ui_issues():
     return render_template('issues.html')
+
+
+@app.route('/ui/issues/<issue_key>')
+def ui_issues_key(issue_key):
+
+    rows = []
+    with conn.cursor() as cur:
+        cols = ','.join(ISSUE_COLUMN_NAMES)
+        sql = f'SELECT {cols} FROM jira_issues WHERE key=%s'
+        cur.execute(sql, (issue_key,))
+        results = cur.fetchall()
+        for row in results:
+            ds = {}
+            for idx,x in enumerate(ISSUE_COLUMN_NAMES):
+                ds[x] = row[idx]
+            rows.append(ds)
+
+    with open('lib/static/json/fields.json', 'r') as f:
+        field_map = json.loads(f.read())
+    field_map = dict((x['id'], x) for x in field_map)
+
+    return render_template('issue.html', issue_key=issue_key, issue_data=rows[0], field_map=field_map)
 
 
 @app.route('/ui/projects')
@@ -150,9 +175,9 @@ def tickets_tree():
                 jira_issues pi on pi.key = rel.parent
         """)
         rows = cur.fetchall()
-        print(f'TOTAL RELS {len(rows)}')
+        #print(f'TOTAL RELS {len(rows)}')
         for row in rows:
-            print(row)
+            #print(row)
             parent = row[0]
             child = row[1]
             child_type = row[2]
@@ -201,6 +226,34 @@ def tickets_tree():
             }
         elif imap[ik]['summary'] is None:
             imap[ik]['summary'] = idata['summary']
+
+    if request.args.get('filter'):
+        fkey = request.args['filter']
+        print(fkey)
+        filtered = {}
+        for k,v in imap.items():
+            if k == fkey:
+                filtered[k] = v
+            elif v['parent_key'] == fkey:
+                filtered[k] = v
+
+        while True:
+            changed = False
+            for k,v in imap.items():
+                if k in filtered:
+                    continue
+                if v['parent_key'] in filtered:
+                    changed = True
+                    filtered[k] = v
+            if not changed:
+                break
+
+        imap = filtered
+
+    if request.args.get('closed') in ['false', 'False', '0']:
+        for k,v in copy.deepcopy(imap).items():
+            if v['status'] == 'Closed':
+                imap.pop(k)
 
     return jsonify(imap)
 

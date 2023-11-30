@@ -112,9 +112,9 @@ class JiraWrapper:
         self.scrape_jira_issues(full=full)
         self.process_relationships()
 
-    def map_relationships(self, project):
+    def map_relationships(self, project=None, projects=None, clean=True):
         self.project = project
-        self.process_relationships()
+        self.process_relationships(project=project, projects=projects, clean=clean)
 
     def map_events(self, ids=None, idmap=None, datawrappers=None, logit=True):
 
@@ -136,7 +136,7 @@ class JiraWrapper:
         self.jdbw.check_table_and_create('jira_issue_events')
 
         if datawrappers is None:
-            datawrappers = self.dcw.datawrappers
+            datawrappers = self.dcw.data_wrappers
 
         with self.conn.cursor() as cur:
 
@@ -550,22 +550,47 @@ class JiraWrapper:
 
         return dw
 
-    def process_relationships(self):
+    def process_relationships(self, project=None, projects=None, clean=False):
 
-        logger.info(f'processing relationships for {self.project}')
+        if project:
+            logger.info(f'processing relationships for {project}')
+        elif projects:
+            logger.info(f'processing relationships for {projects}')
 
-        if self.number is not None:
-            keys = [self.project + '-' + str(self.number)]
-        else:
-            known = sorted(self.jdbw.get_known_numbers(self.project))
-            keys = [self.project + '-' + str(x) for x in known]
+        if clean:
+            if project:
+                self.clean_relationships_by_project(project)
+            if projects:
+                for _project in projects:
+                    self.clean_relationships_by_project(_project)
 
-        logger.info(f'processing relationships for {len(keys)} issue(s) in {self.project}')
-        for key in keys:
-            fn = self.dcw.get_fn_for_issue_by_key(key)
-            if fn is None or not os.path.exists(fn):
-                continue
-            self.store_issue_relationships_to_database_by_filename(fn)
+        if not projects:
+            projects = [project]
+
+        for _project in projects:
+
+            if self.number is not None:
+                keys = [_project + '-' + str(self.number)]
+            else:
+                known = sorted(self.jdbw.get_known_numbers(_project))
+                keys = [_project + '-' + str(x) for x in known]
+
+            logger.info(f'processing relationships for {len(keys)} issue(s) in {_project}')
+            for key in keys:
+                fn = self.dcw.get_fn_for_issue_by_key(key)
+                if fn is None or not os.path.exists(fn):
+                    continue
+                self.store_issue_relationships_to_database_by_filename(fn)
+
+    def clean_relationships_by_keys(self, keys):
+        raise Exception('not yet implemented')
+
+    def clean_relationships_by_project(self, project):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM jira_issue_relationships WHERE parent like '{project}-%' OR child like '{project}-%'"
+            )
+            self.conn.commit()
 
     def store_issue_relationships_to_database_by_filename(self, ifile):
 
@@ -584,7 +609,7 @@ class JiraWrapper:
 
         # customfield_12311140
 
-        # FIXME - dunno what this was
+        # Parent link (cross project linkage, like from AAH to ANSTRAT) ...
         if not has_field_parent and dw.raw_data['fields'].get('customfield_12313140'):
             parent = dw.raw_data['fields']['customfield_12313140']
             has_field_parent = True
@@ -606,10 +631,10 @@ class JiraWrapper:
         if children:
             children = children
 
+        '''
+        # check the events history ...
         if dw.raw_history is None:
             return
-
-        # check the events history ...
         for event in dw.raw_history:
             for eitem in event['items']:
                 if eitem['field'] == 'Parent Link' and not has_field_parent:
@@ -620,6 +645,7 @@ class JiraWrapper:
                 elif eitem['field'] == 'Epic Child':
                     if eitem['toString']:
                         children.append(eitem['toString'].split()[0])
+        '''
 
         '''
         if link_type['name'] == 'Blocks':
@@ -686,18 +712,24 @@ def main():
         jw.map_events()
 
     elif args.serial or len(projects) == 1:
+
+        if args.relationships_only:
+            jw = JiraWrapper()
+            jw.map_relationships(project=None, projects=projects, clean=True)
+            return
+
         # do one at a time ...
         for project in projects:
             if args.number:
                 jw = JiraWrapper()
                 if args.relationships_only:
-                    jw.map_relationships(project=project)
+                    jw.map_relationships(project=project, clean=False)
                 else:
                     jw.scrape(project=project, number=args.number, full=args.full)
             else:
                 jw = JiraWrapper()
                 if args.relationships_only:
-                    jw.map_relationships(project=project)
+                    jw.map_relationships(project=project, clean=False)
                 else:
                     jw.scrape(project=project, full=args.full)
     else:
