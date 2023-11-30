@@ -116,7 +116,7 @@ class JiraWrapper:
         self.project = project
         self.process_relationships(project=project, projects=projects, clean=clean)
 
-    def map_events(self, ids=None, idmap=None, datawrappers=None, logit=True):
+    def map_events(self, ids=None, idmap=None, datawrappers=None, logit=True, projects=None):
 
         """
         ISSUE_EVENT_SCHEMA = '''
@@ -146,6 +146,9 @@ class JiraWrapper:
                 idmap = dict((x[0], None) for x in rows)
 
             for dw in datawrappers:
+
+                if projects and dw.project not in projects:
+                    continue
 
                 # TBD: use the outter scraper to only process what was fetched
                 if ids and dw.id not in ids:
@@ -709,7 +712,7 @@ def main():
 
     elif args.events_only:
         jw = JiraWrapper()
-        jw.map_events()
+        jw.map_events(projects=projects)
 
     elif args.serial or len(projects) == 1:
 

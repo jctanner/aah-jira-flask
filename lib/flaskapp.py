@@ -227,14 +227,14 @@ def tickets_tree():
         elif imap[ik]['summary'] is None:
             imap[ik]['summary'] = idata['summary']
 
-    if request.args.get('filter'):
-        fkey = request.args['filter']
-        print(fkey)
+    if request.args.get('key'):
+        ikey = request.args['key']
+        print(ikey)
         filtered = {}
         for k,v in imap.items():
-            if k == fkey:
+            if k == ikey:
                 filtered[k] = v
-            elif v['parent_key'] == fkey:
+            elif v['parent_key'] == ikey:
                 filtered[k] = v
 
         while True:
@@ -245,6 +245,35 @@ def tickets_tree():
                 if v['parent_key'] in filtered:
                     changed = True
                     filtered[k] = v
+            if not changed:
+                break
+
+        imap = filtered
+
+    if request.args.get('project'):
+        project = request.args['project']
+        print(project)
+        project += '-'
+        filtered = {}
+        for k,v in imap.items():
+            if k.startswith(project):
+                filtered[k] = v
+            #elif v['parent_key'] and v['parent_key'].startswith(project):
+            #    filtered[k] = v
+
+        while True:
+            changed = False
+            for k,v in imap.items():
+                #if k in filtered:
+                #    continue
+                #if v['parent_key'] in filtered:
+                #    changed = True
+                #    filtered[k] = v
+                if k in filtered and v['parent_key'] and v['parent_key'] not in filtered:
+                    if v['parent_key'] not in imap:
+                        continue
+                    filtered[v['parent_key']] = imap[v['parent_key']]
+                    changed = True
             if not changed:
                 break
 
