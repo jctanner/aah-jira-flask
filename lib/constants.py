@@ -6,6 +6,7 @@ PROJECTS = [
     'AAPRFE',
     'ACA',
     'ANSTRAT',
+    'APM',
     'CLOUDDST',
     'HATSTRAT',
     'OCPSTRAT',
