@@ -399,7 +399,8 @@ class JiraWrapper:
             while True:
                 logger.info(f'search: {qs} ...')
                 try:
-                    issues = self.jira_client.search_issues(qs, maxResults=10000)
+                    #issues = self.jira_client.search_issues(qs, maxResults=10000)
+                    issues = self.jira_client.search_issues(qs, maxResults=100)
                     #issues = self.jira_client.search_issues(qs, maxResults=1000)
                     break
                 except Exception as e:

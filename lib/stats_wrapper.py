@@ -245,7 +245,7 @@ class StatsWrapper:
         merged_df = pd.merge(backlog_grouped, ocm_grouped, on='timestamp', how='outer')
         return merged_df.to_json(date_format='iso', indent=2)
 
-    def churn(self, projects, frequency='monthly', fields=None):
+    def churn(self, projects, frequency='monthly', fields=None, start=None, end=None):
 
         assert frequency in ['weekly', 'monthly']
         frequency = frequency[0].upper()
@@ -288,6 +288,14 @@ class StatsWrapper:
                         continue
                     records.append({'timestamp': row[0], row[1]: 1})
 
+        if start:
+            st = datetime.datetime.strptime(start, '%Y-%m-%d')
+            records = [x for x in records if x['timestamp'] >= st]
+
+        if end:
+            et = datetime.datetime.strptime(end, '%Y-%m-%d')
+            records = [x for x in records if x['timestamp'] <= et]
+
         df = pd.DataFrame(records)
         # import epdb; epdb.st()
         df['timestamp'] = pd.to_datetime(df['timestamp'])
@@ -324,6 +332,8 @@ def main():
     parser.add_argument('--project', help='which project to make stats for', action="append", dest="projects")
     parser.add_argument('--field', action="append", dest="fields")
     parser.add_argument('--frequency', choices=['monthly', 'weekly'], default='monthly')
+    parser.add_argument('--start', help='start date YYY-MM-DD')
+    parser.add_argument('--end', help='end date YYY-MM-DD')
     parser.add_argument('action', choices=['burndown', 'churn'])
 
     args = parser.parse_args()
@@ -337,7 +347,13 @@ def main():
     if args.action == 'burndown':
         print(sw.burndown(args.projects, frequency=args.frequency))
     elif args.action == 'churn':
-        print(sw.churn(args.projects, frequency=args.frequency, fields=args.fields))
+        print(sw.churn(
+            args.projects,
+            frequency=args.frequency,
+            fields=args.fields,
+            start=args.start,
+            end=args.end
+        ))
 
 
 if __name__ == "__main__":

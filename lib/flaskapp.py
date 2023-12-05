@@ -22,6 +22,7 @@ from database import JiraDatabaseWrapper
 from stats_wrapper import StatsWrapper
 
 from constants import ISSUE_COLUMN_NAMES
+from tree import make_tickets_tree
 
 
 jdbw = JiraDatabaseWrapper()
@@ -142,147 +143,14 @@ def tickets():
 @app.route('/api/tickets_tree/')
 def tickets_tree():
 
-    issue_keys = {}
-    nodes = []
-
-    with conn.cursor() as cur:
-
-        cur.execute('SELECT key,type,state,summary FROM jira_issues')
-        results = cur.fetchall()
-        for row in results:
-            issue_keys[row[0]] = {
-                'key': row[0],
-                'type': row[1],
-                'state': row[2],
-                'summary': row[3],
-            }
-
-        cur.execute(f"""
-            SELECT
-                rel.parent,
-                rel.child,
-                ci.type,
-                ci.state,
-                ci.summary,
-                pi.type,
-                pi.state,
-                pi.summary
-            FROM
-                jira_issue_relationships rel
-            LEFT JOIN
-                jira_issues ci on ci.key = rel.child
-            LEFT JOIN
-                jira_issues pi on pi.key = rel.parent
-        """)
-        rows = cur.fetchall()
-        #print(f'TOTAL RELS {len(rows)}')
-        for row in rows:
-            #print(row)
-            parent = row[0]
-            child = row[1]
-            child_type = row[2]
-            child_status = row[3]
-            child_summary = row[4]
-            parent_type = row[5]
-            parent_status = row[6]
-            parent_summary = row[7]
-            nodes.append({
-                'parent': parent,
-                'parent_type': parent_type,
-                'parent_status': parent_status,
-                'parent_summary': parent_summary,
-                'child': child,
-                'child_type': child_type,
-                'child_status': child_status,
-                'child_summary': child_summary,
-            })
-
-    imap = {}
-
-    for node in nodes:
-        #if node['child'] and not node['child'].startswith('AAH-'):
-        #    continue
-        #if node['parent'] and not node['parent'].startswith('AAH-'):
-        #    continue
-        if node['child'] not in imap:
-            imap[node['child']] = {
-                'key': node['child'],
-                'type': node['child_type'],
-                'status': node['child_status'],
-                'summary': node['child_summary'],
-                'parent_key': node['parent']
-            }
-
-    for ik,idata in issue_keys.items():
-        if ik is None:
-            continue
-        if ik not in imap:
-            imap[ik] = {
-                'key': ik,
-                'type': idata['type'],
-                'status': idata['state'],
-                'summary': idata['summary'],
-                'parent_key': None,
-            }
-        elif imap[ik]['summary'] is None:
-            imap[ik]['summary'] = idata['summary']
-
-    if request.args.get('key'):
-        ikey = request.args['key']
-        print(ikey)
-        filtered = {}
-        for k,v in imap.items():
-            if k == ikey:
-                filtered[k] = v
-            elif v['parent_key'] == ikey:
-                filtered[k] = v
-
-        while True:
-            changed = False
-            for k,v in imap.items():
-                if k in filtered:
-                    continue
-                if v['parent_key'] in filtered:
-                    changed = True
-                    filtered[k] = v
-            if not changed:
-                break
-
-        imap = filtered
-
-    if request.args.get('project'):
-        project = request.args['project']
-        print(project)
-        project += '-'
-        filtered = {}
-        for k,v in imap.items():
-            if k.startswith(project):
-                filtered[k] = v
-            #elif v['parent_key'] and v['parent_key'].startswith(project):
-            #    filtered[k] = v
-
-        while True:
-            changed = False
-            for k,v in imap.items():
-                #if k in filtered:
-                #    continue
-                #if v['parent_key'] in filtered:
-                #    changed = True
-                #    filtered[k] = v
-                if k in filtered and v['parent_key'] and v['parent_key'] not in filtered:
-                    if v['parent_key'] not in imap:
-                        continue
-                    filtered[v['parent_key']] = imap[v['parent_key']]
-                    changed = True
-            if not changed:
-                break
-
-        imap = filtered
-
-    if request.args.get('closed') in ['false', 'False', '0']:
-        for k,v in copy.deepcopy(imap).items():
-            if v['status'] == 'Closed':
-                imap.pop(k)
+    show_closed = request.args.get('closed') in ['false', 'False', '0']
+    filter_key = request.args.get('key')
+    filter_project = request.args.get('project')
+    imap = make_tickets_tree(
+        filter_key=filter_key,
+        filter_project=filter_project,
+        show_closed=show_closed
+    )
 
     return jsonify(imap)
 
@@ -327,8 +195,11 @@ def tickets_churn():
     fields = request.args.getlist("field")
     print(fields)
 
+    start = request.args.get('start')
+    end = request.args.get('end')
+
     sw = StatsWrapper()
-    data = sw.churn(projects, frequency='monthly', fields=fields)
+    data = sw.churn(projects, frequency='monthly', fields=fields, start=start, end=end)
     #data = sw.burndown('AAH', frequency='monthly')
     #data = sw.burndown('AAH', frequency='weekly')
     data = json.loads(data)
