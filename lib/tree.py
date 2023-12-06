@@ -158,7 +158,6 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True):
                 if not ds.get('parent_key'):
                     continue
                 pkey = ds['parent_key']
-                print(f'{key} ADDS {pkey}')
                 if pkey not in filtered:
                     if pkey not in imap:
                         filtered[pkey] = {
