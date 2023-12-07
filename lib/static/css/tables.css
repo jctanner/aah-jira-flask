@@ -1,0 +1,7 @@
+table.dataTable tbody tr.stripe1 {
+    background-color: #F8F8F8;
+}
+table.dataTable tbody tr.stripe2 {
+    background-color: #F0F0F0;
+    border-bottom: solid #c0c0c0;
+}

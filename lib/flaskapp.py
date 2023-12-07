@@ -23,6 +23,7 @@ from stats_wrapper import StatsWrapper
 
 from constants import ISSUE_COLUMN_NAMES
 from tree import make_tickets_tree
+from text_tools import render_jira_markup
 
 
 jdbw = JiraDatabaseWrapper()
@@ -75,7 +76,15 @@ def ui_issues_key(issue_key):
         field_map = json.loads(f.read())
     field_map = dict((x['id'], x) for x in field_map)
 
-    return render_template('issue.html', issue_key=issue_key, issue_data=rows[0], field_map=field_map)
+    issue_description = render_jira_markup(rows[0]['description'])
+
+    return render_template(
+        'issue.html',
+        issue_key=issue_key,
+        issue_description=issue_description,
+        issue_data=rows[0],
+        field_map=field_map
+    )
 
 
 @app.route('/ui/projects')
