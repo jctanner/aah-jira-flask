@@ -83,7 +83,7 @@
 					var newHTML = '';
 					for (let i = 0; i < res.length; i++) {
 						//console.log(res[i]);
-						let issueUrl = 'https://issues.redhat.com/browse/' + res[i].key;
+						let issueUrl = '/ui/issues/' + res[i].key;
 						newHTML += '<tr>';
 						newHTML += `<td><a href="${issueUrl}">${res[i].key}</a></td>`;
 						for (let j = 0; j < columns.length; j++) {
