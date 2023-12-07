@@ -6,6 +6,7 @@
 				<thead>
 					<th>name</th>
 					<th>issues</th>
+					<th>burndown</th>
 					<th>tree</th>
 					<th>churn</th>
 				</thead>
@@ -27,6 +28,7 @@
 						newHTML += '<tr>';
 						newHTML += `<td>${res[i]}</td>`;
 						newHTML += `<td><a href="/ui/issues/?project=${res[i]}">issues</a></td>`;
+						newHTML += `<td><a href="/ui/burndown?project=${res[i]}">burndown</a></td>`;
 						newHTML += `<td><a href="/ui/tree?project=${res[i]}">tree</a></td>`;
 						newHTML += `<td><a href="/ui/churn?project=${res[i]}">churn</a></td>`;
 						newHTML += '</tr>';

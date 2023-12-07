@@ -454,7 +454,8 @@ class JiraWrapper:
 
         # reconcile state ...
         known = sorted(self.jdbw.get_known_numbers(self.project))
-        invalid = sorted(self.get_invalid_numbers(self.project))
+        #invalid = sorted(self.get_invalid_numbers(self.project))
+        invalid = []
         unfetched = []
         if known:
             unfetched = [x for x in range(1, known[-1]) if x not in invalid]
@@ -466,16 +467,20 @@ class JiraWrapper:
         to_skip = []
         for number in unfetched:
 
-            updated = self.get_issue_field(self.project, number, 'updated')
+            # updated = self.get_issue_field(self.project, number, 'updated')
+            updated = self.jdbw.get_issue_column(self.project, number, 'updated')
+
             if updated is None:
                 continue
 
-            updated = datetime.datetime.strptime(updated.split('.')[0], '%Y-%m-%dT%H:%M:%S')
+            # updated = datetime.datetime.strptime(updated.split('.')[0], '%Y-%m-%dT%H:%M:%S')
             if updated >= oldest_update:
                 to_skip.append(number)
                 continue
 
-            last_fetched = self.get_issue_column(project, number, 'fetched')
+            # last_fetched = self.get_issue_column(project, number, 'fetched')
+            last_fetched = self.jdbw.get_issue_column(project, number, 'updated')
+
             logger.info(f'{project}-{number} fetched: {last_fetched}')
             if last_fetched is not None:
                 if last_fetched >= oldest_update:
@@ -495,7 +500,8 @@ class JiraWrapper:
             logger.info(f'{len(unfetched)}|{idm} {ikey} sync state ...')
 
             # last_state = self.get_issue_column(project, number, 'state')
-            last_fetched = self.get_issue_column(project, number, 'fetched')
+            # last_fetched = self.get_issue_column(project, number, 'fetched')
+            last_fetched = self.jdbw.get_issue_column(project, number, 'fetched')
             logger.info(f'{project}-{number} fetched: {last_fetched}')
             if last_fetched is not None:
                 delta = datetime.datetime.now() - last_fetched
@@ -504,10 +510,11 @@ class JiraWrapper:
                 if delta.days <= 0:
                     continue
 
+            logger.info(f'getting fresh data for {ikey}')
             issue = self.get_issue(ikey)
             if issue is None:
                 logger.error(f'{ikey} is invalid')
-                self.store_issue_invalid(self.project, mn)
+                # self.store_issue_invalid(self.project, mn)
                 continue
 
             # write to json file
@@ -555,6 +562,8 @@ class JiraWrapper:
         return dw
 
     def process_relationships(self, project=None, projects=None, clean=False):
+
+        return
 
         if project:
             logger.info(f'processing relationships for {project}')

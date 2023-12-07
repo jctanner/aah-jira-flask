@@ -2,98 +2,139 @@
 {% block content %}
 
     <div class="container-fluid">
-    <div class="80">
+        <div class="80">
 
-        <h1><a href="https://issues.redhat.com/browse/{{ issue_key }}">https://issues.redhat.com/browse/{{ issue_key }}</a></h1>
-        <h2>{{ issue_data['summary'] }}</h2>
-        <hr>
 
-        <div style="white-space: pre-wrap;">
-{{ issue_description }}
-        </div>
-        <hr>
-
-        <table>
-            <tr>
-                <th>key</th>
-                <th>val</th>
-            <tr>
-            {% for k,v in issue_data.items() %}
-                {% if k != 'data' and k != 'history' and k != 'description' %}
-                <tr>
-                    <td>{{ k }}</td>
-                    <td>{{ v }}</td>
-                </tr>
-                {% endif %}
-            {% endfor %}
-        </table>
-
-        <hr>
-        <h4>fields</h4>
-        <table>
-            <tr>
-                <th>field</th>
-                <th>name</th>
-                <th>data</th>
-            </tr>
-            {% for k,v in issue_data.data.fields.items() %}
-                <tr>
-                    {% if k != 'comment' %}
-                        <td>{{ k }}</td>
-                        <td>{{ field_map[k].name }}</td>
-                        {% if v and v is mapping and 'value' in v %}
-                            <td>{{ v['value'] }}</td>
-                        {% elif v and v is mapping and 'name' in v %}
-                            <td>{{ v['name'] }}</td>
-                        {% elif v and v is iterable and v is not mapping and v is not string and v is not integer  %}
-                            <td>
-                                {% for v2 in v %}
-                                    {{ v2['value'] }}
-                                {% endfor %}
-                            <td>
-                        {% else %}
-                            <td>{{ v }}</td>
-                        {% endif %}
-                    {% endif %}
-                </tr>
-            {% endfor %}
-        </table>
-
-        <hr>
-        <h4>history</h4>
-        <table>
-            <tr>
-                <th>date</th>
-                <th>field</th>
-                <th>from</th>
-                <th>to</th>
-            </tr>
-        {% for event in issue_data.history %}
-                {% for eitem in event['items'] %}
-                    <tr>
-                    <td>{{ event.created.split('.')[0] }}</td>
-                    <td>{{ eitem.field }}</td>
-                    <td>{{ eitem.fromString }}</td>
-                    <td>{{ eitem.toString }}</td>
-                    <tr>
-                {% endfor %}
-        {% endfor %}
-        </table>
-
-        {% if 'comment' in issue_data.data.fields %}
-        <hr>
-        <h4>Comments</h4>
-        {% for cdata in issue_data.data.fields.comment.comments %}
-            <div style="padding:5px;">
-                {{ cdata.created.split('.')[0] }}
-                {{ cdata.author.name }}
-                <br>
-                {{ cdata.body }}
+            <div class="container-fluid">
+                <div class="row">
+                    <div class="col">
+                        <h1><a href="https://issues.redhat.com/browse/{{ issue_key }}">https://issues.redhat.com/browse/{{ issue_key }}</a></h1>
+                    </div>
+                    <div class="col">
+                        <button id='refresh-issue' type="button" class="btn btn-primary" onclick="refreshIssue();">refresh</button>
+                    </div>
+                </div>
             </div>
-        {% endfor %}
-        {% endif %}
 
+            <h2>{{ issue_data['summary'] }}</h2>
+            <hr>
+
+            <div style="white-space: pre-wrap;">
+    {{ issue_description }}
+            </div>
+            <hr>
+
+            <table>
+                <tr>
+                    <th>key</th>
+                    <th>val</th>
+                <tr>
+                {% for k,v in issue_data.items() %}
+                    {% if k != 'data' and k != 'history' and k != 'description' %}
+                    <tr>
+                        <td>{{ k }}</td>
+                        <td>{{ v }}</td>
+                    </tr>
+                    {% endif %}
+                {% endfor %}
+            </table>
+
+            <hr>
+            <h4>fields</h4>
+            <table>
+                <tr>
+                    <th>field</th>
+                    <th>name</th>
+                    <th>data</th>
+                </tr>
+                {% for k,v in issue_data.data.fields.items() %}
+                    <tr>
+                        {% if k != 'comment' %}
+                            <td>{{ k }}</td>
+
+                            {% if k in field_map %}
+                                <td>{{ field_map[k].name }}</td>
+                            {% else %}
+                                <td></td>
+                            {% endif %}
+
+
+                            {% if v and v is mapping and 'value' in v %}
+                                <td>{{ v['value'] }}</td>
+                            {% elif v and v is mapping and 'name' in v %}
+                                <td>{{ v['name'] }}</td>
+                            {% elif v and v is iterable and v is not mapping and v is not string and v is not integer  %}
+                                <td>
+                                    {% for v2 in v %}
+                                        {{ v2['value'] }}
+                                    {% endfor %}
+                                <td>
+                            {% else %}
+                                <td>{{ v }}</td>
+                            {% endif %}
+                        {% endif %}
+                    </tr>
+                {% endfor %}
+            </table>
+
+            <hr>
+            <h4>history</h4>
+            <table>
+                <tr>
+                    <th>date</th>
+                    <th>field</th>
+                    <th>from</th>
+                    <th>to</th>
+                </tr>
+            {% for event in issue_data.history %}
+                    {% for eitem in event['items'] %}
+                        <tr>
+                        <td>{{ event.created.split('.')[0] }}</td>
+                        <td>{{ eitem.field }}</td>
+                        <td>{{ eitem.fromString }}</td>
+                        <td>{{ eitem.toString }}</td>
+                        <tr>
+                    {% endfor %}
+            {% endfor %}
+            </table>
+
+            {% if 'comment' in issue_data.data.fields %}
+            <hr>
+            <h4>Comments</h4>
+            {% for cdata in issue_data.data.fields.comment.comments %}
+                <div style="padding:5px;">
+                    {{ cdata.created.split('.')[0] }}
+                    {{ cdata.author.name }}
+                    <br>
+                    {{ cdata.body }}
+                </div>
+            {% endfor %}
+            {% endif %}
+
+        </div>
     </div>
-    </div>
+
+    <script>
+    function refreshIssue() {
+
+        var button = document.getElementById('refresh-issue');
+        button.disabled = true;
+
+        const issueKey = '{{ issue_key }}';
+        const url = '/api/refresh';
+        const payload = {issue: issueKey};
+
+        axios.post(url, payload)
+            .then(response => {
+                window.location.reload();
+            })
+            .catch(error => {
+                alert('failed to fresh issue');
+                console.error(error);
+                button.disabled = false;
+            });
+
+    }
+    </script>
 
 {% endblock %}

@@ -16,7 +16,7 @@ from flask import send_file
 from pprint import pprint
 from logzero import logger
 
-# from nodes import TicketNode
+from jira_wrapper import JiraWrapper
 from nodes import tickets_to_nodes
 from database import JiraDatabaseWrapper
 from stats_wrapper import StatsWrapper
@@ -26,10 +26,10 @@ from tree import make_tickets_tree
 from text_tools import render_jira_markup
 
 
+jw = JiraWrapper()
 jdbw = JiraDatabaseWrapper()
 conn = jdbw.get_connection()
 atexit.register(conn.close)
-
 
 
 app = Flask(__name__)
@@ -76,13 +76,22 @@ def ui_issues_key(issue_key):
         field_map = json.loads(f.read())
     field_map = dict((x['id'], x) for x in field_map)
 
-    issue_description = render_jira_markup(rows[0]['description'])
+    if rows:
+        issue_data = rows[0]
+        issue_description = render_jira_markup(rows[0]['description'])
+    else:
+        issue_data = {
+            'data': {
+                'fields': {}
+            }
+        }
+        issue_description = ''
 
     return render_template(
         'issue.html',
         issue_key=issue_key,
         issue_description=issue_description,
-        issue_data=rows[0],
+        issue_data=issue_data,
         field_map=field_map
     )
 
@@ -220,6 +229,20 @@ def tickets_churn():
         data.pop(km[0], None)
     '''
     return jsonify(data)
+
+
+@app.route('/api/refresh', methods=['POST'])
+def ticket_refresh():
+
+    issue_key = request.json.get('issue')
+    project = issue_key.split('-')[0]
+    number = int(issue_key.split('-')[1])
+    jw.project = project
+    jw.number = number
+    jw.scrape(project=project, number=number, full=True)
+    return jsonify({})
+
+
 
 
 if __name__ == '__main__':
