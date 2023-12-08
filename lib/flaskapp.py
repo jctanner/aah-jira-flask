@@ -24,6 +24,7 @@ from stats_wrapper import StatsWrapper
 from constants import ISSUE_COLUMN_NAMES
 from tree import make_tickets_tree
 from text_tools import render_jira_markup
+from query_parser import query_parse
 
 
 jw = JiraWrapper()
@@ -129,22 +130,51 @@ def projects():
     return jsonify(projects)
 
 
-@app.route('/api/tickets')
-@app.route('/api/tickets/')
+@app.route('/api/tickets', methods=['GET', 'POST'])
+@app.route('/api/tickets/', methods=['GET', 'POST'])
 def tickets():
 
-    projects = request.args.getlist("project")
-    if projects:
-        project = projects[0]
+    cols = [
+        'key',
+        'created',
+        'updated',
+        'created_by',
+        'assigned_to',
+        'type',
+        'priority',
+        'state',
+        'summary'
+    ]
+
+    if request.method == 'POST':
+        query = request.json.get('query')
+        print(f'SEARCH QUERY: {query}')
+
+        with open('lib/static/json/fields.json', 'r') as f:
+            field_map = json.loads(f.read())
+        field_map = dict((x['id'], x) for x in field_map)
+
+        sql = query_parse(query, field_map=field_map)
+
     else:
-        project = 'AAH'
 
-    cols = ['key', 'created', 'updated', 'created_by', 'assigned_to', 'type', 'priority', 'state', 'summary']
-    WHERE = f"WHERE project = '{project}' AND state != 'Closed'"
+        projects = request.args.getlist("project")
+        if projects:
+            project = projects[0]
+        else:
+            project = 'AAH'
 
+        cols = [
+            'key', 'created', 'updated', 'created_by',
+            'assigned_to', 'type', 'priority', 'state', 'summary'
+        ]
+        WHERE = f"WHERE project = '{project}' AND state != 'Closed'"
+        sql = f"SELECT {','.join(cols)} FROM jira_issues {WHERE}"
+
+    print(f'SQL: {sql}')
     filtered = []
     with conn.cursor() as cur:
-        cur.execute(f"SELECT {','.join(cols)} FROM jira_issues {WHERE}")
+        cur.execute(sql)
         results = cur.fetchall()
         for row in results:
             ds = {}

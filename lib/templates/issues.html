@@ -2,7 +2,24 @@
 {% extends "base.html" %}
 {% block content %}
 
-		<div id="tickets-container" style="width:100%">
+
+        <div class="container-fluid">
+          <div class="row">
+            <div class="col">
+              <input id='search-box' type="text" class="form-control" placeholder="">
+            </div>
+            <div class="col-auto">
+              <button type="button" class="btn btn-primary" onclick="doSearch();">Search</button>
+            </div>
+          </div>
+        </div>
+
+
+        <hr>
+
+
+		<!--<div id="tickets-container" style="width:100%">-->
+		<div id="tickets-container" class="container-fluid">
 			<table id='tickets-table' style="width:100%">
 				<thead>
 					<th>ID</th>
@@ -21,6 +38,64 @@
 		</div>
 
 		<script>
+
+
+            function buildTable(res) {
+
+                console.log('building table ...');
+
+                var dataTable = $('#tickets-table').DataTable();
+                if (dataTable) {
+                    dataTable.destroy();
+                }
+
+                var newHTML = '';
+                for (let i = 0; i < res.length; i++) {
+                    //console.log(res[i]);
+                    let issueUrl = '/ui/issues/' + res[i].key;
+                    newHTML += '<tr>';
+                    newHTML += `<td><a href="${issueUrl}">${res[i].key}</a></td>`;
+                    for (let j = 0; j < columns.length; j++) {
+                        // newHTML += `<td>${res[i].fields[columns[j]]}</td>`;
+                        let val = Object.byString(res[i], columns[j]);
+                        if (columns[j]  === 'fields.created' || columns[j] === 'fields.updated') {
+                            val = dateSplit(val);
+                        };
+                        newHTML += `<td>${val}</td>`;
+                    };
+                    newHTML += '</tr>';
+                }
+                document.getElementById('tickets-table-body').innerHTML = newHTML;
+
+                $('#tickets-table').DataTable({
+                    "order": [[1, 'desc']],
+                    "pageLength": 50,
+                    "stripeClasses": [ 'stripe1', 'stripe2' ],
+                    "columnDefs": [
+                        { width: '50%', targets: -1 }
+                    ]
+                });
+            }
+
+            function doSearch() {
+                console.log('start search ...');
+                const searchBox = document.getElementById('search-box');
+                const query = searchBox.value;
+
+                const payload = {
+                    query: query
+                }
+
+                axios.post('/api/tickets', payload)
+                    .then(response => {
+                        console.log(response);
+                        buildTable(response.data);
+                    })
+                    .catch(error => {
+                        console.error(error);
+                    });
+
+            };
 
             // https://stackoverflow.com/a/6491621
             Object.byString = function(o, s) {
@@ -64,6 +139,9 @@
 
 			function onLoad() {
 
+                const searchBox = document.getElementById('search-box');
+                searchBox.value = '';
+
                 queryString = window.location.search;
                 const urlParams = new URLSearchParams(queryString);
                 let projects = urlParams.getAll("project");
@@ -79,29 +157,7 @@
 					method: "GET",
 					headers: {'Content-Type': 'application/json'}, 
 				}).then(res => res.json()).then(res => {
-					//console.log("Request complete! response:", res);
-					var newHTML = '';
-					for (let i = 0; i < res.length; i++) {
-						//console.log(res[i]);
-						let issueUrl = '/ui/issues/' + res[i].key;
-						newHTML += '<tr>';
-						newHTML += `<td><a href="${issueUrl}">${res[i].key}</a></td>`;
-						for (let j = 0; j < columns.length; j++) {
-							// newHTML += `<td>${res[i].fields[columns[j]]}</td>`;
-                            let val = Object.byString(res[i], columns[j]);
-                            if (columns[j]  === 'fields.created' || columns[j] === 'fields.updated') {
-                                val = dateSplit(val);
-                            };
-							newHTML += `<td>${val}</td>`;
-						};
-						newHTML += '</tr>';
-					}
-					document.getElementById('tickets-table-body').innerHTML = newHTML;
-					$('#tickets-table').DataTable({
-                        "order": [[1, 'desc']],
-                        "pageLength": 50,
-                        "stripeClasses": [ 'stripe1', 'stripe2' ]
-                    });
+                    buildTable(res);
 				});
 			};
 
