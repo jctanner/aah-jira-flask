@@ -24,6 +24,7 @@ from stats_wrapper import StatsWrapper
 from constants import ISSUE_COLUMN_NAMES
 from tree import make_tickets_tree
 from text_tools import render_jira_markup
+from text_tools import split_acceptance_criteria
 from query_parser import query_parse
 
 
@@ -95,6 +96,12 @@ def ui_issues_key(issue_key):
         issue_data=issue_data,
         field_map=field_map
     )
+
+
+@app.route('/ui/acceptance_criteria')
+@app.route('/ui/acceptance_criteria/')
+def ui_acceptance_criteria():
+    return render_template('acceptance_criteria.html')
 
 
 @app.route('/ui/projects')
@@ -187,6 +194,42 @@ def tickets():
     return jsonify(filtered)
 
 
+@app.route('/api/acceptance_criteria')
+@app.route('/api/acceptance_criteria/')
+def api_acceptance_criteria():
+
+    sql = "SELECT project,key,summary,state,data->'fields'->>'customfield_12315940' acceptance_criteria"
+    sql += " from jira_issues"
+    sql += " WHERE data->'fields'->>'customfield_12315940' IS NOT NULL"
+    if request.args.get('project'):
+        project = request.args.get('project')
+        sql += f" AND project='{project}'"
+
+    print(f'SQL: {sql}')
+    rows = []
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        results = cur.fetchall()
+        cols = [desc[0] for desc in cur.description]
+
+        for row in results:
+            ds = {}
+            for idc,colname in enumerate(cols):
+                ds[colname] = row[idc]
+            rows.append(ds)
+
+    final_rows = []
+    for row in rows:
+        criteria = split_acceptance_criteria(row['acceptance_criteria'])
+        for idc,crit in enumerate(criteria):
+            ds = copy.deepcopy(row)
+            ds['criteria_id'] = idc
+            ds['acceptance_criteria'] = crit
+            final_rows.append(ds)
+
+    return jsonify(final_rows)
+
+
 @app.route('/api/tickets_tree')
 @app.route('/api/tickets_tree/')
 def tickets_tree():
@@ -211,8 +254,12 @@ def tickets_burndown():
     if not projects:
         return redirect('/api/tickets_burndown/?project=AAH')
 
+    start = request.args.get('start')
+    end = request.args.get('end')
+    frequency = request.args.get('frequency', 'monthly')
+
     sw = StatsWrapper()
-    data = sw.burndown(projects, frequency='monthly')
+    data = sw.burndown(projects, frequency=frequency, start=start, end=end)
     #data = sw.burndown('AAH', frequency='monthly')
     #data = sw.burndown('AAH', frequency='weekly')
     data = json.loads(data)

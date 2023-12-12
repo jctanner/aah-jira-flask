@@ -396,6 +396,7 @@ class JiraWrapper:
             else:
                 issues = [issue]
         else:
+            counter = 0
             while True:
                 logger.info(f'search: {qs} ...')
                 try:
@@ -405,6 +406,9 @@ class JiraWrapper:
                     break
                 except Exception as e:
                     logger.error(e)
+                    counter += 1
+                    if counter >= 5:
+                        raise Exception(f'unable search {self.project}')
                     time.sleep(.5)
 
         # store each "open" issue ...

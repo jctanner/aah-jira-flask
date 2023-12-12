@@ -98,20 +98,6 @@ class StatsWrapper:
 
         utc_timezone = pytz.timezone("UTC")
 
-        '''
-        where_clause = ''
-        if projects:
-            placeholders = []
-            for project in projects:
-                placeholders.append('%s')
-            where_clause = "project = " + " OR project = ".join(placeholders)
-        '''
-
-        '''
-        qs = f'SELECT created,data,project FROM jira_issue_events WHERE ({where_clause})'
-        qs += " AND (data->>'field' = 'Key' OR (data->>'field' = 'status' AND ( data->>'toString'='New' OR data->>'toString'='Closed' )))"
-        '''
-
         where_clause = ''
         if projects:
             placeholders = []
@@ -132,18 +118,20 @@ class StatsWrapper:
                 _qs = f"(data->>'toString' like '{project}-%' OR data->>'fromString' like '{project}-%')"
                 placeholders_2.append(_qs)
 
-        qs = f'SELECT created,data,project FROM jira_issue_events WHERE (({where_clause})'
+        qs = f'SELECT created,data,project,key FROM jira_issue_events WHERE (({where_clause})'
         qs += " AND (data->>'field' = 'Key' OR (data->>'field' = 'status' AND ( data->>'toString'='New' OR data->>'toString'='Closed' ))))"
         if placeholders_2:
             qs += " OR "
             qs += '(' + " OR ".join(placeholders_2) + ')'
+
+        print(qs)
 
         event = {
             'timestamp': None,
             'opened': 0,
             'closed': 0,
             'moved_in': 0,
-            'moved_out': 0
+            'moved_out': 0,
         }
 
         events = []
@@ -154,11 +142,28 @@ class StatsWrapper:
 
             for row in cur.fetchall():
 
+                #print(row)
+
                 ev = copy.deepcopy(event)
 
                 ts = row[0]
                 ts = ts.astimezone(utc_timezone)
                 ev['timestamp'] = ts
+
+                src_project = None
+                dst_project = None
+                if row[1]['field'] == 'Key':
+                    src_project = row[1]['fromString'].split('-')[0]
+                    dst_project = row[1]['toString'].split('-')[0]
+
+                matched = False
+                for project in projects:
+                    if project in [row[2], src_project, dst_project]:
+                        matched = True
+                        break
+
+                if not matched:
+                    continue
 
                 if row[1]['field'] == 'status':
                     if row[1]['toString'] == 'New':
@@ -175,26 +180,38 @@ class StatsWrapper:
                     src_project = row[1]['fromString'].split('-')[0]
                     dst_project = row[1]['toString'].split('-')[0]
 
-                    #print(f'{src_project} -> {dst_project}')
+                    matched = False
+                    for project in projects:
+                        if project in [src_project, dst_project]:
+                            matched = True
+                            break
+
+                    if not matched:
+                        continue
 
                     if dst_project in projects:
                         ev['moved_in'] = 1
                         events.append(ev)
+                    elif src_project not in projects:
+                        import epdb; epdb.st()
                     else:
                         ev['moved_out'] = 1
                         events.append(ev)
 
         #import epdb; epdb.st()
         events = sorted(events, key=lambda x: x['timestamp'])
+
+        #return [events[0]]
         return events
 
-    def burndown(self, projects, frequency='monthly'):
+    def burndown(self, projects, frequency='monthly', start=None, end=None):
 
-        assert frequency in ['weekly', 'monthly']
+        assert frequency in ['weekly', 'monthly', 'daily']
         frequency = frequency[0].upper()
 
         utc_timezone = pytz.timezone("UTC")
 
+        oc_with_key = []
         open_close_events = []
         for issue in self._get_projects_issue_history(projects):
             if issue['updated'] is None or issue['created'] is None:
@@ -211,13 +228,18 @@ class StatsWrapper:
                 ts = ts.astimezone(utc_timezone)
                 open_close_events.append([ts, -1])
 
+                #import epdb; epdb.st()
+                oc_with_key.append([ts, -1, issue['data']['key']])
+
         df = pd.DataFrame(open_close_events, columns=['timestamp', 'backlog'])
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df.set_index('timestamp', inplace=True)
 
         # get the open/close/move events
         ocm_events = self.get_open_close_move_events(projects)
-        ocm_df = pd.DataFrame(ocm_events, columns=['timestamp', 'opened', 'closed', 'moved_in', 'moved_out'])
+        ocm_df = pd.DataFrame(
+            ocm_events, columns=['timestamp', 'opened', 'closed', 'moved_in', 'moved_out']
+        )
         ocm_df['timestamp'] = pd.to_datetime(ocm_df['timestamp'])
         ocm_df = ocm_df.sort_values('timestamp')
         ocm_grouped = ocm_df.groupby(ocm_df['timestamp'].dt.to_period(frequency))\
@@ -235,14 +257,23 @@ class StatsWrapper:
         )
         '''
 
-        #import epdb; epdb.st()
-
         # cumulative sum for backlog ...
         backlog_grouped = df['backlog'].groupby(pd.Grouper(freq=frequency)).sum().cumsum()
         backlog_grouped = backlog_grouped.to_frame()
         backlog_grouped.index = backlog_grouped.index.to_period(frequency)
 
         merged_df = pd.merge(backlog_grouped, ocm_grouped, on='timestamp', how='outer')
+
+        if start or end:
+            if start:
+                cutoff_period = pd.Period(start, freq=frequency[0])
+                merged_df = merged_df[merged_df.index >= cutoff_period]
+            if end:
+                cutoff_period = pd.Period(end, freq=frequency[0])
+                merged_df = merged_df[merged_df.index <= cutoff_period]
+
+            #import epdb; epdb.st()
+
         return merged_df.to_json(date_format='iso', indent=2)
 
     def churn(self, projects, frequency='monthly', fields=None, start=None, end=None):
@@ -331,7 +362,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--project', help='which project to make stats for', action="append", dest="projects")
     parser.add_argument('--field', action="append", dest="fields")
-    parser.add_argument('--frequency', choices=['monthly', 'weekly'], default='monthly')
+    parser.add_argument('--frequency', choices=['monthly', 'weekly', 'daily'], default='monthly')
     parser.add_argument('--start', help='start date YYY-MM-DD')
     parser.add_argument('--end', help='end date YYY-MM-DD')
     parser.add_argument('action', choices=['burndown', 'churn'])
@@ -345,7 +376,12 @@ def main():
     sw = StatsWrapper()
 
     if args.action == 'burndown':
-        print(sw.burndown(args.projects, frequency=args.frequency))
+        print(sw.burndown(
+            args.projects,
+            frequency=args.frequency,
+            start=args.start,
+            end=args.end
+        ))
     elif args.action == 'churn':
         print(sw.churn(
             args.projects,
