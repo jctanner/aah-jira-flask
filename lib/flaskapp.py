@@ -124,6 +124,11 @@ def ui_churn():
     return render_template('churn.html')
 
 
+@app.route('/ui/labels')
+def ui_labels():
+    return render_template('labels.html')
+
+
 @app.route('/api/projects')
 def projects():
 
@@ -228,6 +233,54 @@ def api_acceptance_criteria():
             final_rows.append(ds)
 
     return jsonify(final_rows)
+
+
+@app.route('/api/labels')
+@app.route('/api/labels/')
+def api_labels():
+
+    '''
+    sql = "SELECT project,key,summary,state,data->'fields'->>'labels' acceptance_criteria"
+    sql += " from jira_issues"
+    sql += " WHERE data->'fields'->>'customfield_12315940' IS NOT NULL"
+    '''
+    clauses = {
+        'state': [('!=', 'Closed')]
+    }
+
+    sql = "select label,COUNT(label) count from jira_issues,jsonb_array_elements(data->'fields'->'labels') AS label"
+
+    if request.args.get('project'):
+        clauses['project'] = [('=', request.args.get('project'))]
+    if request.args.get('state'):
+        clauses['state'] = [('=', request.args.get('state'))]
+
+    if clauses:
+        sql += ' WHERE '
+        statements = []
+        for k,v in clauses.items():
+            for _v in v:
+                statement = f"{k}{_v[0]}'{_v[1]}'"
+                statements.append(statement)
+        sql += ' AND '.join(statements)
+
+    sql += " GROUP BY label"
+    sql += " ORDER BY count DESC"
+
+    print(f'SQL: {sql}')
+    rows = []
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        results = cur.fetchall()
+        cols = [desc[0] for desc in cur.description]
+
+        for row in results:
+            ds = {}
+            for idc,colname in enumerate(cols):
+                ds[colname] = row[idc]
+            rows.append(ds)
+
+    return jsonify(rows)
 
 
 @app.route('/api/tickets_tree')

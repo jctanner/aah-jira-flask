@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block content %}
+
+		<div id="labels-container" style="width:100%">
+			<table id='labels-table' style="width:100%">
+				<thead>
+					<th>label</th>
+					<th>issue count</th>
+					<th>issues</th>
+				</thead>
+				<tbody id="labels-table-body">
+				<tbody>	
+			</table>
+		</div>
+
+		<script>
+
+			function onLoad() {
+
+                const url = "/api/labels/"
+
+                queryString = window.location.search;
+                const urlParams = new URLSearchParams(queryString);
+                let projects = urlParams.getAll("project");
+
+                const apiParams = new URLSearchParams();
+                projects.forEach(value => {
+                    apiParams.append("project", value);
+                });
+                const apiString = apiParams.toString();
+                const apiUrl = `${url}/?${apiString}`;
+
+				fetch(apiUrl, {
+					method: "GET",
+					headers: {'Content-Type': 'application/json'}, 
+				}).then(res => res.json()).then(res => {
+					var newHTML = '';
+					for (let i = 0; i < res.length; i++) {
+						//console.log(res[i]);
+						newHTML += '<tr>';
+						newHTML += `<td>${res[i].label}</td>`;
+						newHTML += `<td>${res[i].count}</td>`;
+                        const encodedLabel = encodeURIComponent(res[i].label);
+						newHTML += `<td><a href="/ui/issues/?label=${encodedLabel}">issues</a></td>`;
+						newHTML += '</tr>';
+					}
+
+					document.getElementById('labels-table-body').innerHTML = newHTML;
+					$('#labels-table').DataTable({
+                        "order": [[1, 'desc']],
+                        "pageLength": 50,
+                        "stripeClasses": [ 'stripe1', 'stripe2' ]
+                    });
+
+
+				});
+			};
+
+		</script>
+
+{% endblock %}

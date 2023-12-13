@@ -33,6 +33,10 @@
           <a class="nav-link" href="/ui/churn">churn</a>
         </li>
 
+        <li class="nav-item {% if request.path.startswith('/ui/labels') %}active{% endif %}">
+          <a class="nav-link" href="/ui/labels">labels</a>
+        </li>
+
         <li class="nav-item {% if request.path.startswith('/ui/acceptance_criteria') %}active{% endif %}">
           <a class="nav-link" href="/ui/acceptance_criteria">acceptance criteria</a>
         </li>
