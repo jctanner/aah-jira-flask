@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import argparse
 import atexit
 import copy
 import datetime
@@ -299,9 +300,18 @@ class JiraDatabaseWrapper:
 
 
 def main():
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--start', action='store_true')
+    parser.add_argument('--load', action='store_true')
+    args = parser.parse_args()
+
     jdbw = JiraDatabaseWrapper()
-    jdbw.start_database()
-    jdbw.load_database()
+
+    if args.start:
+        jdbw.start_database()
+    if args.load:
+        jdbw.load_database()
 
 
 if __name__ == "__main__":
