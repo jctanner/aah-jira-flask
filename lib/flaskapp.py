@@ -294,12 +294,15 @@ def api_labels():
 def tickets_tree():
 
     show_closed = request.args.get('closed') in ['false', 'False', '0']
+    show_progress = request.args.get('progress') in ['true', 'True', '1']
     filter_key = request.args.get('key')
     filter_project = request.args.get('project')
+
     imap = make_tickets_tree(
         filter_key=filter_key,
         filter_project=filter_project,
-        show_closed=show_closed
+        show_closed=show_closed,
+        map_progress=show_progress
     )
 
     return jsonify(imap)

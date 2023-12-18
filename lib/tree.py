@@ -96,7 +96,34 @@ def _get_issue_map():
     return issue_map
 
 
-def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True):
+def map_child_states(parent_key, imap):
+
+    print(f'map children for {parent_key}')
+
+    parent_data = imap[parent_key]
+    child_keys = set()
+
+    changed = None
+    while changed is None or changed:
+
+        changed = False
+
+        for ik,idata in imap.items():
+            if not idata['parent_key']:
+                continue
+            if idata['parent_key'] == parent_key or idata['parent_key'] in child_keys:
+                if ik not in child_keys:
+                    child_keys.add(ik)
+                    changed = True
+
+    if not child_keys:
+        return []
+
+    states = [imap[x]['status'] for x in child_keys]
+    return sorted(states)
+
+
+def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, map_progress=False):
 
     # get all issues
     issue_map = _get_issue_map()
@@ -131,6 +158,24 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True):
             imap[ik]['summary'] = idata['summary']
 
     print(f'UNFILTERED KEYS {len(list(imap.keys()))}')
+    imap_copy = copy.deepcopy(imap)
+
+    '''
+    # recursively compute % completion for each ticket ...
+    # top_keys = [x[0] for x in imap.items() if not x[1]['parent_key']]
+    if map_progress:
+        for ik,idata in imap.items():
+            imap[ik]['completed'] = None
+            child_states = map_child_states(ik, imap)
+            if not child_states:
+                imap[ik]['completed'] = '100%'
+                continue
+            closed = child_states.count('Closed')
+            percent_complete = float(closed) / float(len(child_states))
+            percent_complete *= 100
+            percent_complete = round(percent_complete)
+            imap[ik]['completed'] = str(percent_complete) + '%'
+    '''
 
     if filter_key or filter_project:
 
@@ -199,6 +244,24 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True):
             if v['status'] == 'Closed':
                 imap.pop(k)
 
+    # recursively compute % completion for each ticket ...
+    # top_keys = [x[0] for x in imap.items() if not x[1]['parent_key']]
+    if not map_progress:
+        for ik,idata in imap.items():
+            imap[ik]['completed'] = None
+    else:
+        for ik,idata in imap.items():
+            imap[ik]['completed'] = None
+            child_states = map_child_states(ik, imap_copy)
+            if not child_states:
+                imap[ik]['completed'] = '100%'
+                continue
+            closed = child_states.count('Closed')
+            percent_complete = float(closed) / float(len(child_states))
+            percent_complete *= 100
+            percent_complete = round(percent_complete)
+            imap[ik]['completed'] = str(percent_complete) + '%'
+
     print(f'FILTERED KEYS {len(list(imap.keys()))}')
 
     #import epdb; epdb.st()
@@ -207,5 +270,6 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True):
 
 
 if __name__ == '__main__':
-    pprint(make_tickets_tree(filter_key='AAH-2968', filter_project=None, show_closed=True))
+    #pprint(make_tickets_tree(filter_key='AAH-2968', filter_project=None, show_closed=True))
     #pprint(make_tickets_tree(filter_project='AAH', show_closed=True))
+    pprint(make_tickets_tree(filter_project='AAH', show_closed=True, map_progress=True))
