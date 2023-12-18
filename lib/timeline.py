@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import atexit
 import copy
 import datetime
@@ -60,8 +61,12 @@ def make_timeline(
 
             if key not in imap:
                 imap[key] = {
+                    'created': ds['created'].isoformat(),
+                    'created_by': ds['created_by'],
+                    'assigned_to': ds['assigned_to'],
                     'summary': ds['summary'],
                     'type': ds['type'],
+                    'involved_users': [],
                     'states': []
                 }
 
@@ -69,6 +74,9 @@ def make_timeline(
 
                 author = hist['author']['name']
                 ts = hist['created']
+
+                if author not in imap[key]['involved_users']:
+                    imap[key]['involved_users'].append(author)
 
                 if filter_user and filter_user not in author:
                     continue
@@ -95,13 +103,31 @@ def make_timeline(
             if not time_start or time_start > created_ts:
                 time_start = created_ts
 
+    if filter_user:
+        allowed_keys = set()
+        for k,v in imap.items():
+
+            is_involved = False
+
+            if v['assigned_to'] and filter_user in v['assigned_to']:
+                is_involved = True
+            elif filter_user in ' '.join(v['involved_users']):
+                is_involved = True
+
+            if is_involved:
+                allowed_keys.add(k)
+
+        keys = list(imap.keys())
+        for key in keys:
+            if key not in allowed_keys:
+                imap.pop(key, None)
+
     # add a 'did not exist' state ...
     for key in imap.keys():
         dne_ts = time_start
         if len(dne_ts) == 19:
             dne_ts += '.000+0000'
         imap[key]['states'].insert(0, [dne_ts, 'Did Not Exist'])
-
 
     timestamp_format = '%Y-%m-%dT%H:%M:%S.%f'
     now = datetime.datetime.now()
@@ -137,11 +163,23 @@ def make_timeline(
     }
 
 
+
 if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--project', action='append')
+    parser.add_argument('--filter-key')
+    parser.add_argument('--filter-user')
+    args = parser.parse_args()
+
+    project = 'AAH'
+    if args.project:
+        project = args.project[0]
+
     pprint(
         make_timeline(
-            filter_key=None,
-            filter_project='AAH',
-            #filter_user='jtanner'
+            filter_key=args.filter_key,
+            filter_project=project,
+            filter_user=args.filter_user
         )
     )

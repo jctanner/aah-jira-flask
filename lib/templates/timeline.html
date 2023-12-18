@@ -50,6 +50,33 @@
             background-color: #FDFEFE; /* Red */
         }
 
+        /* Optional: Add some basic styling to the div */
+        .tooltip-div {
+            width: 200px;
+            padding: 10px;
+            position: relative;
+        }
+
+        /* Optional: Style the tooltip */
+        .tooltip-div:hover .tooltip-text {
+            visibility: visible;
+        }
+
+        .tooltip-text {
+            visibility: hidden;
+            width: 150px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 4px;
+            padding: 5px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
     </style>
 
 		<div id="timeline-container" style="width:100%">
@@ -160,20 +187,26 @@
                             let lastTime = null;
                             ds.states.forEach((state) => {
 
-                                //const ts = state[0];
-                                //const trimmed = ts.replace(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3})\+\d{4}/, '$1');
-                                //const datetimeObject = new Date(trimmed);
-
                                 const stateName = state[1];
                                 const stateID = stateMap.get(stateName);
 
                                 console.log(stateName, stateID);
 
                                 const totalDays = state[2];
+
+                                /*
                                 for (let i = 0; i <= totalDays; i++) {
 
-                                    html += `<div class="block ${stateID}"></div>`;
+                                    html += `<div class="block ${stateID} tooltip-div">`
+                                    html += `   <div class="tooltip-text">${stateName}</div>`;
+                                    html += '</div>';
                                 };
+                                */
+
+                                html += `<div class="block ${stateID} tooltip-div" style="width: ${totalDays}px;">`
+                                html += `   <div class="tooltip-text">${stateName}</div>`;
+                                html += '</div>';
+                                
                             });
 
                             html += '</div>';
