@@ -254,7 +254,10 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, ma
             imap[ik]['completed'] = None
             child_states = map_child_states(ik, imap_copy)
             if not child_states:
-                imap[ik]['completed'] = '100%'
+                if imap[ik]['status'] == 'Closed':
+                    imap[ik]['completed'] = '100%'
+                else:
+                    imap[ik]['completed'] = '0%'
                 continue
             closed = child_states.count('Closed')
             percent_complete = float(closed) / float(len(child_states))
