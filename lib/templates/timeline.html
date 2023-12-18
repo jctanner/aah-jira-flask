@@ -2,6 +2,22 @@
 {% block content %}
 
     <style>
+        .table-container {
+            overflow: auto;
+            max-height: 400px; /* Adjust this value based on your needs */
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            position: sticky;
+            top: 0;
+            background-color: #f0f0f0;
+        }
+
         /* Style for the container div */
         .block-container {
             display: inline-block;
@@ -26,11 +42,19 @@
             background-color: #A9A9A9; /* Red */
         }
 
+        .StateToDo {
+            background-color: #A9A9A9; /* Red */
+        }
+
         .StateInProgress {
             background-color: #DAF7A6; /* Red */
         }
 
         .StateCodeReview {
+            background-color: #FFC300; /* Red */
+        }
+
+        .StateRefinement {
             background-color: #FFC300; /* Red */
         }
 
@@ -64,7 +88,7 @@
 
         .tooltip-text {
             visibility: hidden;
-            width: 150px;
+            width: 250px;
             background-color: #333;
             color: #fff;
             text-align: center;
@@ -99,11 +123,13 @@
             </div>
             -->
 
-            <table id='timeline-table'>
+            <table id='timeline-table' class="table-container">
                 <thead>
                     <tr>
                         <td></td>
                         <td>key</td>
+                        <td>type</td>
+                        <td>state</td>
                         <td>summary</td>
                         <td>states</td>
                 </thead>
@@ -135,6 +161,8 @@
             stateMap.set('Obsolete', 'StateObsolete');
             stateMap.set('Backlog', 'StateBacklog');
             stateMap.set('Closed', 'StateClosed');
+            stateMap.set('To Do', 'StateToDo');
+            stateMap.set('Refinement', 'StateRefinement');
 
 			function onLoad() {
 
@@ -154,6 +182,10 @@
 
                 if (urlParams.get('type') !== null) {
                     apiParams.append('type', urlParams.get('type'));
+                }
+
+                if (urlParams.get('state') !== null) {
+                    apiParams.append('state', urlParams.get('state'));
                 }
 
                 const apiString = apiParams.toString();
@@ -178,8 +210,11 @@
                             html += '<tr>';
 
                             html += `<td>${ix}</td>`;
-                            html += `<td>${key}</td>`;
-                            html += `<td>${ds.summary.slice(0, 30)}</td>`;
+                            html += `<td><a href="/ui/issues/${key}">${key}</a></td>`;
+                            html += `<td>${ds.type}</td>`;
+                            html += `<td>${ds.state}</td>`;
+                            //html += `<td>${ds.summary.slice(0, 30)}</td>`;
+                            html += `<td>${ds.summary}</td>`;
 
                             html += '<td>';
                             html += '<div class="block-container">';
@@ -204,7 +239,13 @@
                                 */
 
                                 html += `<div class="block ${stateID} tooltip-div" style="width: ${totalDays}px;">`
-                                html += `   <div class="tooltip-text">${stateName}</div>`;
+
+                                if (stateName === 'Did Not Exist') {
+                                    html += `   <div class="tooltip-text">${ds.summary}</div>`;
+                                } else {
+                                    html += `   <div class="tooltip-text">${stateName} ${state[0]}</div>`;
+                                }
+
                                 html += '</div>';
                                 
                             });

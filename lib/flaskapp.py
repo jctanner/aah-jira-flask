@@ -375,14 +375,20 @@ def api_tickets_timeline():
     end = request.args.get('end')
     itype = request.args.get('type')
     user = request.args.get('user')
+    state = request.args.get('state')
+
+    project = 'AAH'
+    if projects:
+        project = projects[0]
 
     # make_timeline(filter_key=None, filter_project=None, filter_user=None)
     ds = make_timeline(
         start=start,
         finish=end,
-        filter_project='AAH',
+        filter_project=project,
         filter_type=itype,
         filter_user=user,
+        filter_state=state,
     )
     return jsonify(ds)
 

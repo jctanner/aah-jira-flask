@@ -25,16 +25,30 @@ def make_timeline(
     filter_project=None,
     filter_user=None,
     filter_type=None,
+    filter_state=None,
     start=None,
     finish=None,
 ):
 
     sql = 'select project,number,key'
-    sql += ',created,updated,closed,created_by,summary,assigned_to,type,history'
+    sql += ',created,updated,closed,created_by,summary,assigned_to,type,state,history'
     sql += ' from jira_issues'
 
     if filter_project:
         sql += f" WHERE project='{filter_project}'"
+
+    if filter_state:
+
+        operator = '='
+        val = filter_state
+        if val.startswith('-'):
+            operator = '!='
+            val = val.lstrip('-')
+
+        if 'WHERE' in sql:
+            sql += f" AND state{operator}'{val}'"
+        else:
+            sql += f" WHERE state{operator}'{val}'"
 
     print(sql)
 
@@ -67,31 +81,34 @@ def make_timeline(
                     'summary': ds['summary'],
                     'type': ds['type'],
                     'involved_users': [],
+                    'state': ds['state'],
                     'states': []
                 }
 
-            for hist in ds['history']:
 
-                author = hist['author']['name']
-                ts = hist['created']
+            if ds['history']:
+                for hist in ds['history']:
 
-                if author not in imap[key]['involved_users']:
-                    imap[key]['involved_users'].append(author)
+                    author = hist['author']['name']
+                    ts = hist['created']
 
-                if filter_user and filter_user not in author:
-                    continue
+                    if author not in imap[key]['involved_users']:
+                        imap[key]['involved_users'].append(author)
 
-                for hitem in hist['items']:
-
-                    if hitem.get('field') != 'status':
+                    if filter_user and filter_user not in author:
                         continue
 
-                    imap[key]['states'].append([ts, hitem['toString']])
+                    for hitem in hist['items']:
 
-                    if not time_start or ts < time_start:
-                        time_start = ts
-                    if not time_finish or ts > time_finish:
-                        time_finish = ts
+                        if hitem.get('field') != 'status':
+                            continue
+
+                        imap[key]['states'].append([ts, hitem['toString']])
+
+                        if not time_start or ts < time_start:
+                            time_start = ts
+                        if not time_finish or ts > time_finish:
+                            time_finish = ts
 
             # add created state
             created = ds['created']
@@ -115,6 +132,17 @@ def make_timeline(
                 is_involved = True
 
             if is_involved:
+                allowed_keys.add(k)
+
+        keys = list(imap.keys())
+        for key in keys:
+            if key not in allowed_keys:
+                imap.pop(key, None)
+
+    if filter_type:
+        allowed_keys = set()
+        for k,v in imap.items():
+            if v['type'] == filter_type:
                 allowed_keys.add(k)
 
         keys = list(imap.keys())
@@ -168,6 +196,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--project', action='append')
+    parser.add_argument('--filter-type')
     parser.add_argument('--filter-key')
     parser.add_argument('--filter-user')
     args = parser.parse_args()
@@ -180,6 +209,7 @@ if __name__ == '__main__':
         make_timeline(
             filter_key=args.filter_key,
             filter_project=project,
-            filter_user=args.filter_user
+            filter_user=args.filter_user,
+            filter_type=args.filter_type
         )
     )
