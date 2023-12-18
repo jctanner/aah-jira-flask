@@ -20,6 +20,7 @@ from jira_wrapper import JiraWrapper
 from nodes import tickets_to_nodes
 from database import JiraDatabaseWrapper
 from stats_wrapper import StatsWrapper
+from timeline import make_timeline
 
 from constants import ISSUE_COLUMN_NAMES
 from tree import make_tickets_tree
@@ -127,6 +128,11 @@ def ui_churn():
 @app.route('/ui/labels')
 def ui_labels():
     return render_template('labels.html')
+
+
+@app.route('/ui/timeline')
+def ui_timeline():
+    return render_template('timeline.html')
 
 
 @app.route('/api/projects')
@@ -359,6 +365,26 @@ def tickets_churn():
         data.pop(km[0], None)
     '''
     return jsonify(data)
+
+
+@app.route('/api/timeline')
+@app.route('/api/timeline/')
+def api_tickets_timeline():
+    projects = request.args.getlist("project")
+    start = request.args.get('start')
+    end = request.args.get('end')
+    itype = request.args.get('type')
+    user = request.args.get('user')
+
+    # make_timeline(filter_key=None, filter_project=None, filter_user=None)
+    ds = make_timeline(
+        start=start,
+        finish=end,
+        filter_project='AAH',
+        filter_type=itype,
+        filter_user=user,
+    )
+    return jsonify(ds)
 
 
 @app.route('/api/refresh', methods=['POST'])

@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block content %}
+
+    <style>
+        /* Style for the container div */
+        .block-container {
+            display: inline-block;
+            border: 0px solid #ccc;
+            display: block;
+        }
+
+        /* Style for each block */
+        .block {
+            display: inline-block;
+            width: 1px;
+            height: 10px;
+            margin: 0px;
+            background-color: #000000; /* Red */
+        }
+
+        .StateNew {
+            background-color: #D3D3D3; /* Red */
+        }
+
+        .StateBacklog {
+            background-color: #A9A9A9; /* Red */
+        }
+
+        .StateInProgress {
+            background-color: #DAF7A6; /* Red */
+        }
+
+        .StateCodeReview {
+            background-color: #FFC300; /* Red */
+        }
+
+        .StateReadyForQA {
+            background-color: #FF5733; /* Red */
+        }
+
+        .StateDone {
+            background-color: #F9EBEA; /* Red */
+        }
+
+        .StateClosed {
+            background-color: #FDFEFE; /* Red */
+        }
+
+        .StateDNE {
+            background-color: #FDFEFE; /* Red */
+        }
+
+    </style>
+
+		<div id="timeline-container" style="width:100%">
+
+            <!--
+            <div class="block-container">
+                <div class="block"></div>
+                <div class="block"></div>
+                <div class="block"></div>
+            </div>
+            <div class="block-container">
+                <div class="block"></div>
+                <div class="block"></div>
+                <div class="block"></div>
+            </div>
+            <div class="block-container">
+                <div class="block"></div>
+                <div class="block"></div>
+                <div class="block"></div>
+            </div>
+            -->
+
+            <table id='timeline-table'>
+                <thead>
+                    <tr>
+                        <td></td>
+                        <td>key</td>
+                        <td>summary</td>
+                        <td>states</td>
+                </thead>
+
+                <tbody id='timeline-table-body'>
+                </tbody>
+
+            </table>
+
+		</div>
+
+		<script>
+
+            function keySort(a, b) {
+              const numA = parseInt(a.match(/\d+/)[0], 10);
+              const numB = parseInt(b.match(/\d+/)[0], 10);
+
+              // Compare the numeric parts as numbers
+              return numA - numB;
+            }
+
+            const stateMap = new Map();
+            stateMap.set('Did Not Exist', 'StateDNE');
+            stateMap.set('New', 'StateNew');
+            stateMap.set('In Progress', 'StateInProgress');
+            stateMap.set('Code Review', 'StateCodeReview');
+            stateMap.set('Ready for QA', 'StateReadyForQA');
+            stateMap.set('Done', 'StateDone');
+            stateMap.set('Obsolete', 'StateObsolete');
+            stateMap.set('Backlog', 'StateBacklog');
+            stateMap.set('Closed', 'StateClosed');
+
+			function onLoad() {
+
+                queryString = window.location.search;
+                const urlParams = new URLSearchParams(queryString);
+                let projects = urlParams.getAll("project");
+
+                const apiParams = new URLSearchParams();
+
+                projects.forEach(value => {
+                    apiParams.append("project", value);
+                });
+
+                if (urlParams.get('user') !== null) {
+                    apiParams.append('user', urlParams.get('user'));
+                }
+
+                if (urlParams.get('type') !== null) {
+                    apiParams.append('type', urlParams.get('type'));
+                }
+
+                const apiString = apiParams.toString();
+                const apiUrl = `/api/timeline/?${apiString}`;
+
+				axios.get(apiUrl)
+                    .then(response => {
+                        console.log(response);
+                        console.log(response.data);
+
+                        const imap = response.data.issues;
+
+                        let html = '';
+
+                        const keys = Object.keys(imap);
+                        keys.sort(keySort);
+
+                        keys.forEach((key, ix) => {
+                            console.log(key);
+                            const ds = imap[key];
+
+                            html += '<tr>';
+
+                            html += `<td>${ix}</td>`;
+                            html += `<td>${key}</td>`;
+                            html += `<td>${ds.summary.slice(0, 30)}</td>`;
+
+                            html += '<td>';
+                            html += '<div class="block-container">';
+
+                            let lastTime = null;
+                            ds.states.forEach((state) => {
+
+                                //const ts = state[0];
+                                //const trimmed = ts.replace(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3})\+\d{4}/, '$1');
+                                //const datetimeObject = new Date(trimmed);
+
+                                const stateName = state[1];
+                                const stateID = stateMap.get(stateName);
+
+                                console.log(stateName, stateID);
+
+                                const totalDays = state[2];
+                                for (let i = 0; i <= totalDays; i++) {
+
+                                    html += `<div class="block ${stateID}"></div>`;
+                                };
+                            });
+
+                            html += '</div>';
+                            html += '</td>';
+
+                            html += '</tr>';
+                        });
+
+                        document.getElementById('timeline-table-body').innerHTML = html;
+
+                    })
+                    .catch(error => {
+                        console.error(error);
+                    });
+			};
+
+		</script>
+
+{% endblock %}
