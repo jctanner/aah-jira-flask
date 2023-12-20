@@ -83,14 +83,18 @@
                 <tr>
                     <th>date</th>
                     <th>field</th>
+                    <th>author</th>
                     <th>from</th>
                     <th>to</th>
                 </tr>
             {% for event in issue_data.history %}
+                    <!-- {{ event|tojson|safe }} -->
                     {% for eitem in event['items'] %}
                         <tr>
+                        <!-- {{ eitem|tojson|safe }} -->
                         <td>{{ event.created.split('.')[0] }}</td>
                         <td>{{ eitem.field }}</td>
+                        <td>{{ event.author.name }}</td>
                         <td>{{ eitem.fromString }}</td>
                         <td>{{ eitem.toString }}</td>
                         <tr>

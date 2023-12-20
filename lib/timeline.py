@@ -24,6 +24,7 @@ def make_timeline(
     filter_key=None,
     filter_project=None,
     filter_user=None,
+    filter_assignee=None,
     filter_type=None,
     filter_state=None,
     start=None,
@@ -37,6 +38,12 @@ def make_timeline(
     if filter_project:
         sql += f" WHERE project='{filter_project}'"
 
+    if filter_assignee:
+        if 'WHERE' in sql:
+            sql += f" AND assigned_to like '%{filter_assignee}%'"
+        else:
+            sql += f" WHERE assigned_to like '%{filter_assignee}%'"
+
     if filter_state:
 
         operator = '='
@@ -49,6 +56,12 @@ def make_timeline(
             sql += f" AND state{operator}'{val}'"
         else:
             sql += f" WHERE state{operator}'{val}'"
+
+    if filter_key:
+        if 'WHERE' in sql:
+            sql += f" AND key='{filter_key}'"
+        else:
+            sql += f" WHERE key='{filter_key}'"
 
     print(sql)
 
@@ -94,9 +107,6 @@ def make_timeline(
 
                     if author not in imap[key]['involved_users']:
                         imap[key]['involved_users'].append(author)
-
-                    if filter_user and filter_user not in author:
-                        continue
 
                     for hitem in hist['items']:
 
@@ -199,9 +209,10 @@ if __name__ == '__main__':
     parser.add_argument('--filter-type')
     parser.add_argument('--filter-key')
     parser.add_argument('--filter-user')
+    parser.add_argument('--filter-assignee')
     args = parser.parse_args()
 
-    project = 'AAH'
+    project = None
     if args.project:
         project = args.project[0]
 
@@ -210,6 +221,7 @@ if __name__ == '__main__':
             filter_key=args.filter_key,
             filter_project=project,
             filter_user=args.filter_user,
+            filter_assignee=args.filter_assignee,
             filter_type=args.filter_type
         )
     )

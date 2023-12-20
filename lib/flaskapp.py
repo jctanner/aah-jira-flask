@@ -66,12 +66,15 @@ def ui_issues_key(issue_key):
     rows = []
     with conn.cursor() as cur:
         cols = ','.join(ISSUE_COLUMN_NAMES)
-        sql = f'SELECT {cols} FROM jira_issues WHERE key=%s'
+        #sql = f'SELECT {cols} FROM jira_issues WHERE key=%s'
+        sql = f'SELECT * FROM jira_issues WHERE key=%s'
         cur.execute(sql, (issue_key,))
         results = cur.fetchall()
+        colnames = [x[0] for x in cur.description]
         for row in results:
             ds = {}
-            for idx,x in enumerate(ISSUE_COLUMN_NAMES):
+            #for idx,x in enumerate(ISSUE_COLUMN_NAMES):
+            for idx,x in enumerate(colnames):
                 ds[x] = row[idx]
             rows.append(ds)
 
@@ -378,9 +381,11 @@ def api_tickets_timeline():
     end = request.args.get('end')
     itype = request.args.get('type')
     user = request.args.get('user')
+    assignee = request.args.get('assignee')
     state = request.args.get('state')
 
-    project = 'AAH'
+    #project = 'AAH'
+    project = None
     if projects:
         project = projects[0]
 
@@ -391,6 +396,7 @@ def api_tickets_timeline():
         filter_project=project,
         filter_type=itype,
         filter_user=user,
+        filter_assignee=assignee,
         filter_state=state,
     )
     return jsonify(ds)

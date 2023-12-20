@@ -180,6 +180,10 @@
                     apiParams.append('user', urlParams.get('user'));
                 }
 
+                if (urlParams.get('assignee') !== null) {
+                    apiParams.append('assignee', urlParams.get('assignee'));
+                }
+
                 if (urlParams.get('type') !== null) {
                     apiParams.append('type', urlParams.get('type'));
                 }
