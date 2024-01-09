@@ -4,7 +4,6 @@
     <div class="container-fluid">
         <div class="80">
 
-
             <div class="container-fluid">
                 <div class="row">
                     <div class="col">
@@ -30,7 +29,7 @@
                     <th>val</th>
                 <tr>
                 {% for k,v in issue_data.items() %}
-                    {% if k != 'data' and k != 'history' and k != 'description' %}
+                    {% if k != 'data' and k != 'history' and k != 'description' and k != 'Description' %}
                     <tr>
                         <td>{{ k }}</td>
                         <td>{{ v }}</td>
@@ -49,7 +48,7 @@
                 </tr>
                 {% for k,v in issue_data.data.fields.items() %}
                     <tr>
-                        {% if k != 'comment' %}
+                        {% if k != 'comment' and k != 'description' and k != 'customfield_12314740' %}
                             <td>{{ k }}</td>
 
                             {% if k in field_map %}

@@ -2,6 +2,11 @@ def sortable_key_from_ikey(key):
     return (key.split('-')[0], int(key.split('-')[-1]), key)
 
 
+def sort_issue_keys(keys):
+    keys = sorted(set(keys))
+    return sorted(keys, key=lambda x: [x.split('-')[0], int(x.split('-')[1])])
+
+
 def history_items_to_dict(items):
     data = []
     for item in items:

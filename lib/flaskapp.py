@@ -27,6 +27,7 @@ from tree import make_tickets_tree
 from text_tools import render_jira_markup
 from text_tools import split_acceptance_criteria
 from query_parser import query_parse
+from utils import sort_issue_keys
 
 
 jw = JiraWrapper()
@@ -36,11 +37,6 @@ atexit.register(conn.close)
 
 
 app = Flask(__name__)
-
-
-def sort_issue_keys(keys):
-    keys = sorted(set(keys))
-    return sorted(keys, key=lambda x: [x.split('-')[0], int(x.split('-')[1])])
 
 
 @app.route('/')
