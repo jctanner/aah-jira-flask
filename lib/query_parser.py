@@ -12,6 +12,7 @@ def query_parse(query, field_map):
         'type',
         'priority',
         'state',
+        "data->'fields'->>'customfield_12313440' as sfdc_count",
         'summary'
     ]
 
@@ -29,10 +30,14 @@ def query_parse(query, field_map):
 
     for k,v in parsed_query.items():
         col = k[0]
+        _col = k[0]
+
         if col == 'assignee':
             col = 'assigned_to'
         elif col == 'reporter':
             col = 'created_by'
+        elif col == 'sfdc_count':
+            col = "(data->'fields'->>'customfield_12313440')::numeric"
 
         operator = k[1]
 
@@ -46,7 +51,10 @@ def query_parse(query, field_map):
             clause = f"{col} LIKE '%{v}%'"
 
         else:
-            clause = f"{col}{operator}'{v}'"
+            if _col == 'sfdc_count':
+                clause = f"{col}{operator}{v}"
+            else:
+                clause = f"{col}{operator}'{v}'"
 
         clauses.append(clause)
 

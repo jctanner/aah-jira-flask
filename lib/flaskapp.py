@@ -160,6 +160,7 @@ def tickets():
         'type',
         'priority',
         'state',
+        "data->'fields'->>'customfield_12313440' as sfdc_count",
         'summary'
     ]
 
@@ -183,7 +184,9 @@ def tickets():
 
         cols = [
             'key', 'created', 'updated', 'created_by',
-            'assigned_to', 'type', 'priority', 'state', 'summary'
+            'assigned_to', 'type', 'priority', 'state',
+            "data->'fields'->>'customfield_12313440' as sfdc_count",
+            'summary'
         ]
         WHERE = f"WHERE project = '{project}' AND state != 'Closed'"
         sql = f"SELECT {','.join(cols)} FROM jira_issues {WHERE}"
@@ -193,12 +196,21 @@ def tickets():
     with conn.cursor() as cur:
         cur.execute(sql)
         results = cur.fetchall()
+
+        print(f'DESCRIPTION: {cur.description}')
+        desc_cols = [x.name for x in cur.description]
+        print(f'DCOLS: {desc_cols}')
+
         for row in results:
             ds = {}
-            for idc,colname in enumerate(cols):
+            #for idc,colname in enumerate(cols):
+            for idc,colname in enumerate(desc_cols):
+
                 ds[colname] = row[idc]
                 if colname in ['created', 'updated']:
                     ds[colname] = row[idc].isoformat().split('.')[0]
+                elif colname == 'sfdc_count':
+                    ds[colname] = int(row[idc].split('.')[0])
             filtered.append(ds)
 
     return jsonify(filtered)
