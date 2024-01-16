@@ -38,6 +38,7 @@ from utils import (
     history_items_to_dict,
     history_to_dict
 )
+from query_parser import query_parse
 
 
 def accumulate_enumerated_backlog_from_row(row):
@@ -204,7 +205,7 @@ class StatsWrapper:
         #return [events[0]]
         return events
 
-    def burndown(self, projects, frequency='monthly', start=None, end=None):
+    def burndown(self, projects, frequency='monthly', start=None, end=None, jql=None):
 
         assert frequency in ['weekly', 'monthly', 'daily']
         frequency = frequency[0].upper()
@@ -276,7 +277,7 @@ class StatsWrapper:
 
         return merged_df.to_json(date_format='iso', indent=2)
 
-    def churn(self, projects, frequency='monthly', fields=None, start=None, end=None):
+    def churn(self, projects, frequency='monthly', fields=None, start=None, end=None, jql=None):
 
         assert frequency in ['weekly', 'monthly']
         frequency = frequency[0].upper()
@@ -356,6 +357,63 @@ class StatsWrapper:
 
         return clean.to_json(date_format='iso', indent=2)
 
+    def stats_report(self, projects=None, frequency='monthly', fields=None, start=None, end=None, jql=None):
+        qs = query_parse(jql, {}, cols=['key', 'project', 'number', 'created', 'updated', 'type', 'state'])
+
+        rows = []
+        with self.conn.cursor() as cur:
+            cur.execute(qs)
+            colnames = [x.name for x in cur.description]
+            for row in cur.fetchall():
+                ds = {}
+                for idx,x in enumerate(row):
+                    ds[colnames[idx]] = x
+                # print(row)
+                rows.append(ds)
+
+        closed_durations = []
+
+        for idr,row in enumerate(rows):
+            rows[idr]['timestamp'] = row['updated']
+            delta = row['updated'] - row['created']
+            rows[idr]['days_open'] = delta.days
+
+        df = pd.DataFrame(rows)
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df.set_index('timestamp', inplace=True)
+        df.sort_index(inplace=True)
+
+        window_size = 7
+        df['days_open_rolling_avg'] = df['days_open'].rolling(window=window_size).mean()
+
+
+        closed_df = df[df['state'] == 'Closed']
+        closed_df['closed_month'] = closed_df['updated'].dt.to_period('M')
+        monthly_velocity = closed_df.groupby('closed_month').size()
+        average_monthly_velocity = monthly_velocity.mean()
+
+        total = int(df['key'].count())
+        total_closed = int(closed_df['key'].count())
+        total_open = total - total_closed
+
+        res = {
+            'total_issue_count': total,
+            'total_issues_open': total_open,
+            'total_issues_closed': total_closed,
+            'days_open_min': float(df['days_open'].min()),
+            'days_open_median': float(df['days_open'].median()),
+            'days_open_mode': float(df['days_open'].mode()[0]),
+            'days_open_mean': float(df['days_open'].mean()),
+            'days_open_max': float(df['days_open'].max()),
+            'average_monthly_velocity': float(average_monthly_velocity),
+            #'dataframe_csv': df.to_csv(),
+            #'dataframe_json': df.to_json(date_format='iso'),
+        }
+
+        #return json.dumps(res)
+        return res
+
+
 
 def main():
 
@@ -365,31 +423,22 @@ def main():
     parser.add_argument('--frequency', choices=['monthly', 'weekly', 'daily'], default='monthly')
     parser.add_argument('--start', help='start date YYY-MM-DD')
     parser.add_argument('--end', help='end date YYY-MM-DD')
-    parser.add_argument('action', choices=['burndown', 'churn'])
+    parser.add_argument('--jql', help='issue selection JQL')
+    parser.add_argument('action', choices=['burndown', 'churn', 'stats_report'])
 
     args = parser.parse_args()
-
-    #projects = PROJECTS[:]
-    #if args.project:
-    #    projects = [args.project]
-
+    kwargs= {
+        'projects': args.projects,
+        'frequency': args.frequency,
+        'fields': args.fields,
+        'start': args.start,
+        'end': args.end,
+        'jql': args.jql,
+    }
     sw = StatsWrapper()
+    func = getattr(sw, args.action)
+    pprint(func(**kwargs))
 
-    if args.action == 'burndown':
-        print(sw.burndown(
-            args.projects,
-            frequency=args.frequency,
-            start=args.start,
-            end=args.end
-        ))
-    elif args.action == 'churn':
-        print(sw.churn(
-            args.projects,
-            frequency=args.frequency,
-            fields=args.fields,
-            start=args.start,
-            end=args.end
-        ))
 
 
 if __name__ == "__main__":
