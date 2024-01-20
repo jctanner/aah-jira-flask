@@ -14,6 +14,7 @@ def query_parse(query, field_map, cols=None, debug=False):
             'type',
             'priority',
             'state',
+            "data->'fields'->>'labels' as labels",
             "data->'fields'->>'customfield_12313440' as sfdc_count",
             'summary'
         ]
@@ -45,8 +46,14 @@ def query_parse(query, field_map, cols=None, debug=False):
         elif col == 'label':
             col = 'labels'
             col = "data->'fields'->>'labels'"
+        elif col == 'fix_versions':
+            col = "data->'fields'->>'fixVersions'"
         elif col == 'parent_link':
             col = "data->'fields'->>'customfield_12313140'"
+        elif col == 'labels':
+            col = "data->'fields'->>'labels'"
+        elif col == 'comments':
+            col = "data->'fields'->'comment'->>'comments'"
         elif col == 'sfdc_count':
             col = "(data->'fields'->>'customfield_12313440')::numeric"
 

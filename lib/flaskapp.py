@@ -160,7 +160,9 @@ def tickets():
         'type',
         'priority',
         'state',
+        "data->'fields'->>'labels' as labels",
         "data->'fields'->>'customfield_12313440' as sfdc_count",
+        "data->'fields'->>'fixVersions' as fix_versions",
         'summary'
     ]
 
@@ -172,7 +174,7 @@ def tickets():
             field_map = json.loads(f.read())
         field_map = dict((x['id'], x) for x in field_map)
 
-        sql = query_parse(query, field_map=field_map)
+        sql = query_parse(query, cols=cols, field_map=field_map, debug=True)
 
     else:
 
@@ -182,12 +184,15 @@ def tickets():
         else:
             project = 'AAH'
 
+        '''
         cols = [
             'key', 'created', 'updated', 'created_by',
             'assigned_to', 'type', 'priority', 'state',
+            "data->'fields'->>'labels' as labels",
             "data->'fields'->>'customfield_12313440' as sfdc_count",
             'summary'
         ]
+        '''
         WHERE = f"WHERE project = '{project}' AND state != 'Closed'"
         sql = f"SELECT {','.join(cols)} FROM jira_issues {WHERE}"
 
@@ -211,6 +216,10 @@ def tickets():
                     ds[colname] = row[idc].isoformat().split('.')[0]
                 elif colname == 'sfdc_count':
                     ds[colname] = int(row[idc].split('.')[0])
+                elif colname == 'labels':
+                    ds[colname] = json.loads(row[idc])
+                elif colname == 'fix_versions':
+                    ds[colname] = [x['name'] for x in json.loads(row[idc])]
             filtered.append(ds)
 
     return jsonify(filtered)

@@ -2,18 +2,18 @@
 {% block content %}
 
     <div class="container-fluid">
-        <div class="80">
+        <div class="100">
 
-            <div class="container-fluid">
+            <!--<div class="container-fluid">-->
                 <div class="row">
                     <div class="col">
-<h1><a href="https://issues.redhat.com/browse/{{ issue_key }}">https://issues.redhat.com/browse/{{ issue_key }}</a></h1>
+<h2><a href="https://issues.redhat.com/browse/{{ issue_key }}">https://issues.redhat.com/browse/{{ issue_key }}</a></h2>
                     </div>
                     <div class="col">
                         <button id='refresh-issue' type="button" class="btn btn-primary" onclick="refreshIssue();">refresh</button>
                     </div>
                 </div>
-            </div>
+            <!--</div>-->
 
             <h2>{{ issue_data['summary'] }}</h2>
             <hr>
