@@ -217,7 +217,10 @@ def tickets():
                 elif colname == 'sfdc_count':
                     ds[colname] = int(row[idc].split('.')[0])
                 elif colname == 'labels':
-                    ds[colname] = json.loads(row[idc])
+                    #ds[colname] = json.loads(row[idc])
+                    labels = json.loads(row[idc])
+                    labels = [x for x in labels if 'JIRALERT' not in x]
+                    ds[colname] = labels
                 elif colname == 'fix_versions':
                     ds[colname] = [x['name'] for x in json.loads(row[idc])]
             filtered.append(ds)
@@ -333,30 +336,25 @@ def tickets_tree():
 def tickets_burndown():
 
     projects = request.args.getlist("project")
-    if not projects:
-        return redirect('/api/tickets_burndown/?project=AAH')
+    #if not projects:
+    #    return redirect('/api/tickets_burndown/?project=AAH')
+
+    jql = request.args.get('jql')
+    print(f'JQL: {jql}')
 
     start = request.args.get('start')
     end = request.args.get('end')
     frequency = request.args.get('frequency', 'monthly')
 
     sw = StatsWrapper()
-    data = sw.burndown(projects, frequency=frequency, start=start, end=end)
-    #data = sw.burndown('AAH', frequency='monthly')
-    #data = sw.burndown('AAH', frequency='weekly')
+    data = sw.burndown(
+        projects,
+        frequency=frequency,
+        start=start,
+        end=end,
+        jql=jql,
+    )
     data = json.loads(data)
-
-    '''
-    keys = list(data.keys())
-    keymap = [(x, x.split('T')[0]) for x in keys]
-
-    print(f'keys: {keys}')
-    print(f'keymap: {keymap}')
-
-    for km in keymap:
-        data[km[1]] = data[km[0]]
-        data.pop(km[0], None)
-    '''
 
     return jsonify(data)
 

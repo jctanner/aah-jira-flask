@@ -30,6 +30,7 @@ from pprint import pprint
 from logzero import logger
 
 import pandas as pd
+import numpy as np
 
 from constants import PROJECTS
 from database import JiraDatabaseWrapper
@@ -60,29 +61,35 @@ class StatsWrapper:
         atexit.register(self.conn.close)
 
 
-    def _get_projects_issue_history(self, projects):
+    def _get_projects_issue_history(self, projects, jql=None):
 
-        placeholders = []
-        for project in projects:
-            placeholders.append('%s')
-        where_clause = "project = " + " OR project = ".join(placeholders)
-        qs = f'SELECT number,state,created,updated,data FROM jira_issues WHERE {where_clause}'
+        if jql:
+            print(f'JQL: {jql}')
+            with open('lib/static/json/fields.json', 'r') as f:
+                field_map = json.loads(f.read())
+            field_map = dict((x['id'], x) for x in field_map)
+            cols = ['number', 'created', 'updated', 'data', 'project', 'key', 'state']
+            qs = query_parse(jql, cols=cols, field_map=field_map, debug=True)
+        else:
+            placeholders = []
+            for project in projects:
+                placeholders.append('%s')
+            where_clause = "project = " + " OR project = ".join(placeholders)
+            qs = f'SELECT project,number,state,created,updated,data FROM jira_issues WHERE {where_clause}'
 
         with self.conn.cursor() as cur:
-            cur.execute(qs,(projects))
+            if jql:
+                cur.execute(qs,)
+            else:
+                cur.execute(qs,(projects))
+            colnames = [x[0] for x in cur.description]
             for row in cur.fetchall():
-                ds = {
-                    'number': row[0],
-                    'state': row[1],
-                    'created': row[2],
-                    'updated': row[3],
-                    'data': row[4],
-                    #'history': row[4],
-                }
+                ds = {}
+                for idc,cname in enumerate(colnames):
+                    ds[cname] = row[idc]
                 yield ds
 
-    def get_open_close_move_events(self, projects):
-
+    def get_open_close_move_events(self, projects, jql=None):
 
         '''
           project   |       key       |                                                            data
@@ -99,105 +106,150 @@ class StatsWrapper:
 
         utc_timezone = pytz.timezone("UTC")
 
-        where_clause = ''
-        if projects:
-            placeholders = []
-            for project in projects:
-                placeholders.append(f"'{project}'")
-            where_clause = "project = " + " OR project = ".join(placeholders)
+        if jql:
+            print(f'JQL: {jql}')
+            with open('lib/static/json/fields.json', 'r') as f:
+                field_map = json.loads(f.read())
+            field_map = dict((x['id'], x) for x in field_map)
+            cols = ['created', 'updated', 'state', 'project', 'key']
+            qs = query_parse(jql, cols=cols, field_map=field_map, debug=True)
 
-        where_clause_1 = ''
-        if projects:
-            placeholders = []
-            for project in projects:
-                placeholders.append('%s')
-            where_clause_1 = "project = " + " OR project = ".join(placeholders)
+            print('*' * 50)
+            print(qs)
+            print('*' * 50)
 
-        placeholders_2 = []
-        if projects:
-            for project in projects:
-                _qs = f"(data->>'toString' like '{project}-%' OR data->>'fromString' like '{project}-%')"
-                placeholders_2.append(_qs)
+            events = []
+            with self.conn.cursor() as cur:
+                cur.execute(qs)
+                colnames = [x[0] for x in cur.description]
+                for row in cur.fetchall():
+                    ds = {}
+                    for idc,colname in enumerate(colnames):
+                        ds[colname] = row[idc]
 
-        qs = f'SELECT created,data,project,key FROM jira_issue_events WHERE (({where_clause})'
-        qs += " AND (data->>'field' = 'Key' OR (data->>'field' = 'status' AND ( data->>'toString'='New' OR data->>'toString'='Closed' ))))"
-        if placeholders_2:
-            qs += " OR "
-            qs += '(' + " OR ".join(placeholders_2) + ')'
+                    # print(ds)
 
-        print(qs)
+                    events.append({
+                        'timestamp': ds['created'].astimezone(utc_timezone),
+                        'opened': 1,
+                        'closed': 0,
+                        'moved_in': 0,
+                        'moved_out': 0,
+                    })
 
-        event = {
-            'timestamp': None,
-            'opened': 0,
-            'closed': 0,
-            'moved_in': 0,
-            'moved_out': 0,
-        }
+                    if ds['state'] == 'Closed':
+                        events.append({
+                            'timestamp': ds['updated'].astimezone(utc_timezone),
+                            'opened': 0,
+                            'closed': 1,
+                            'moved_in': 0,
+                            'moved_out': 0,
+                        })
 
-        events = []
-        with self.conn.cursor() as cur:
+        else:
 
-            #cur.execute(qs,(projects))
-            cur.execute(qs)
-
-            for row in cur.fetchall():
-
-                #print(row)
-
-                ev = copy.deepcopy(event)
-
-                ts = row[0]
-                ts = ts.astimezone(utc_timezone)
-                ev['timestamp'] = ts
-
-                src_project = None
-                dst_project = None
-                if row[1]['field'] == 'Key':
-                    src_project = row[1]['fromString'].split('-')[0]
-                    dst_project = row[1]['toString'].split('-')[0]
-
-                matched = False
+            where_clause = ''
+            if projects:
+                placeholders = []
                 for project in projects:
-                    if project in [row[2], src_project, dst_project]:
-                        matched = True
-                        break
+                    placeholders.append(f"'{project}'")
+                where_clause = "project = " + " OR project = ".join(placeholders)
 
-                if not matched:
-                    continue
+            where_clause_1 = ''
+            if projects:
+                placeholders = []
+                for project in projects:
+                    placeholders.append('%s')
+                where_clause_1 = "project = " + " OR project = ".join(placeholders)
 
-                if row[1]['field'] == 'status':
-                    if row[1]['toString'] == 'New':
-                        ev['opened'] = 1
-                        events.append(ev)
-                    elif row[1]['toString'] == 'Closed':
-                        ev['closed'] = 1
-                        events.append(ev)
-                    else:
-                        import epdb; epdb.st()
+            placeholders_2 = []
+            if projects:
+                for project in projects:
+                    _qs = f"(data->>'toString' like '{project}-%' OR data->>'fromString' like '{project}-%')"
+                    placeholders_2.append(_qs)
 
-                elif row[1]['field'] == 'Key':
+            qs = f'SELECT created,data,project,key FROM jira_issue_events WHERE (({where_clause})'
+            qs += " AND (data->>'field' = 'Key' OR (data->>'field' = 'status' AND ( data->>'toString'='New' OR data->>'toString'='Closed' ))))"
+            if placeholders_2:
+                qs += " OR "
+                qs += '(' + " OR ".join(placeholders_2) + ')'
 
-                    src_project = row[1]['fromString'].split('-')[0]
-                    dst_project = row[1]['toString'].split('-')[0]
+            print('*' * 50)
+            print(qs)
+            print('*' * 50)
+
+            event = {
+                'timestamp': None,
+                'opened': 0,
+                'closed': 0,
+                'moved_in': 0,
+                'moved_out': 0,
+            }
+
+            events = []
+            with self.conn.cursor() as cur:
+
+                #cur.execute(qs,(projects))
+                cur.execute(qs)
+
+                for row in cur.fetchall():
+
+                    #print(row)
+
+                    ev = copy.deepcopy(event)
+
+                    ts = row[0]
+                    ts = ts.astimezone(utc_timezone)
+                    ev['timestamp'] = ts
+
+                    src_project = None
+                    dst_project = None
+
+                    if row[1]['field'] == 'Key':
+                        src_project = row[1]['fromString'].split('-')[0]
+                        dst_project = row[1]['toString'].split('-')[0]
 
                     matched = False
                     for project in projects:
-                        if project in [src_project, dst_project]:
+                        if project in [row[2], src_project, dst_project]:
                             matched = True
                             break
 
                     if not matched:
                         continue
 
-                    if dst_project in projects:
-                        ev['moved_in'] = 1
-                        events.append(ev)
-                    elif src_project not in projects:
-                        import epdb; epdb.st()
-                    else:
-                        ev['moved_out'] = 1
-                        events.append(ev)
+                    if row[1]['field'] == 'status':
+                        if row[1]['toString'] == 'New':
+                            ev['opened'] = 1
+                            events.append(ev)
+                        elif row[1]['toString'] == 'Closed':
+                            ev['closed'] = 1
+                            events.append(ev)
+                        else:
+                            import epdb; epdb.st()
+
+                    elif row[1]['field'] == 'Key':
+
+                        src_project = row[1]['fromString'].split('-')[0]
+                        dst_project = row[1]['toString'].split('-')[0]
+
+                        matched = False
+                        for project in projects:
+                            if project in [src_project, dst_project]:
+                                matched = True
+                                break
+
+                        if not matched:
+                            continue
+
+                        if dst_project in projects:
+                            ev['moved_in'] = 1
+                            events.append(ev)
+                        elif src_project not in projects:
+                            import epdb; epdb.st()
+                        else:
+                            ev['moved_out'] = 1
+                            events.append(ev)
 
         #import epdb; epdb.st()
         events = sorted(events, key=lambda x: x['timestamp'])
@@ -214,7 +266,7 @@ class StatsWrapper:
 
         oc_with_key = []
         open_close_events = []
-        for issue in self._get_projects_issue_history(projects):
+        for issue in self._get_projects_issue_history(projects, jql=jql):
             if issue['updated'] is None or issue['created'] is None:
                 continue
             created = issue['created'].astimezone(utc_timezone)
@@ -236,34 +288,38 @@ class StatsWrapper:
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df.set_index('timestamp', inplace=True)
 
-        # get the open/close/move events
-        ocm_events = self.get_open_close_move_events(projects)
-        ocm_df = pd.DataFrame(
-            ocm_events, columns=['timestamp', 'opened', 'closed', 'moved_in', 'moved_out']
-        )
-        ocm_df['timestamp'] = pd.to_datetime(ocm_df['timestamp'])
-        ocm_df = ocm_df.sort_values('timestamp')
-        ocm_grouped = ocm_df.groupby(ocm_df['timestamp'].dt.to_period(frequency))\
-            .agg({'opened': 'sum', 'closed': 'sum', 'moved_in': 'sum', 'moved_out': 'sum'})
-
-        ocm_grouped['enumerated'] = ocm_grouped.apply(accumulate_enumerated_backlog_from_row, axis=1)
-        ocm_grouped['enumerated_backlog'] = ocm_grouped['enumerated'].cumsum()
-
-        '''
-        # df.apply(lambda row: custom_function(row, df.shift()), axis=1)
-        shifted_df = ocm_grouped.shift()
-        ocm_grouped['enumerated_backlog'] = ocm_grouped.apply(
-            lambda row: accumulate_enumerated_backlog_from_row(row, shifted_df.loc[row.name]),
-            axis=1
-        )
-        '''
-
         # cumulative sum for backlog ...
         backlog_grouped = df['backlog'].groupby(pd.Grouper(freq=frequency)).sum().cumsum()
         backlog_grouped = backlog_grouped.to_frame()
         backlog_grouped.index = backlog_grouped.index.to_period(frequency)
 
-        merged_df = pd.merge(backlog_grouped, ocm_grouped, on='timestamp', how='outer')
+        # get the open/close/move events
+        '''
+        if jql:
+            merged_df = df
+            #merged_df['enumerated'] = np.nan
+            merged_df['opened'] = np.nan
+            merged_df['closed'] = np.nan
+            merged_df['moved_in'] = np.nan
+            merged_df['moved_out'] = np.nan
+            merged_df['enumerated_backlog'] = df['backlog']
+
+        else:
+        '''
+        if True:
+            ocm_events = self.get_open_close_move_events(projects, jql=jql)
+            ocm_df = pd.DataFrame(
+                ocm_events, columns=['timestamp', 'opened', 'closed', 'moved_in', 'moved_out']
+            )
+            ocm_df['timestamp'] = pd.to_datetime(ocm_df['timestamp'])
+            ocm_df = ocm_df.sort_values('timestamp')
+            ocm_grouped = ocm_df.groupby(ocm_df['timestamp'].dt.to_period(frequency))\
+                .agg({'opened': 'sum', 'closed': 'sum', 'moved_in': 'sum', 'moved_out': 'sum'})
+
+            ocm_grouped['enumerated'] = ocm_grouped.apply(accumulate_enumerated_backlog_from_row, axis=1)
+            ocm_grouped['enumerated_backlog'] = ocm_grouped['enumerated'].cumsum()
+
+            merged_df = pd.merge(backlog_grouped, ocm_grouped, on='timestamp', how='outer')
 
         if start or end:
             if start:
