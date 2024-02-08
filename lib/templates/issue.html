@@ -46,7 +46,7 @@
                     <th>name</th>
                     <th>data</th>
                 </tr>
-                {% for k,v in issue_data.data.fields.items() %}
+                {% for k,v in issue_data.data.fields | dictsort %}
                     <tr>
                         {% if k != 'comment' and k != 'description' and k != 'customfield_12314740' %}
                             <td>{{ k }}</td>
