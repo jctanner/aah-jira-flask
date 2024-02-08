@@ -24,6 +24,7 @@ from timeline import make_timeline
 
 from constants import ISSUE_COLUMN_NAMES
 from tree import make_tickets_tree
+from tree import make_child_tree
 from text_tools import render_jira_markup
 from text_tools import split_acceptance_criteria
 from query_parser import query_parse
@@ -326,6 +327,24 @@ def tickets_tree():
         filter_project=filter_project,
         show_closed=show_closed,
         map_progress=show_progress
+    )
+
+    return jsonify(imap)
+
+
+@app.route('/api/ticket_child_tree/<issue_key>')
+def ticket_child_tree(issue_key):
+
+    #show_closed = request.args.get('closed') in ['false', 'False', '0']
+    #show_progress = request.args.get('progress') in ['true', 'True', '1']
+    #filter_key = request.args.get('key')
+    #filter_project = request.args.get('project')
+
+    imap = make_child_tree(
+        filter_key=issue_key,
+        #filter_project=filter_project,
+        show_closed=True,
+        map_progress=True
     )
 
     return jsonify(imap)

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import atexit
 import copy
 import glob
@@ -19,6 +20,8 @@ atexit.register(conn.close)
 
 def _make_nodes(issue_map):
 
+    logger.info('make nodes')
+
     # recompute the releationships now ...
     nodes = []
     for ikey, idata in issue_map.items():
@@ -36,17 +39,24 @@ def _make_nodes(issue_map):
 
         # fill in parent if defined ...
         if any((idata['epic'], idata['feature'], idata['parent'])):
-            if idata['epic']:
+
+            # https://issues.redhat.com/browse/AAH-1682
+            #   epic: https://issues.redhat.com/browse/AAP-16172
+            #   feature: https://issues.redhat.com/browse/ANSTRAT-37
+
+            if idata['parent']:
+                parent_key = idata['parent']
+            elif idata['epic']:
                 parent_key = idata['epic']
             elif idata['feature']:
                 parent_key = idata['feature']
-            elif idata['parent']:
-                parent_key = idata['parent']
 
+            '''
             # sometimes the key is a json dict ...
             if '{' in parent_key:
                 parent_key = json.loads(parent_key)
                 parent_key = parent_key['key']
+            '''
 
             ds['parent'] = parent_key
             if parent_key in issue_map:
@@ -56,17 +66,24 @@ def _make_nodes(issue_map):
                 ds['parent_status'] = parent['state']
                 ds['parent_summary'] = parent['summary']
 
+        #if ikey == 'AAP-16435':
+        #    import epdb; epdb.st()
+
         nodes.append(ds)
 
     return nodes
 
 
-def _get_issue_map():
+def _get_issue_map(filter_key=None, filter_project=None):
+
+    logger.info('get issue map')
+
     # relationship fields are ID'fied
     field_map = {
-        'parent': 'customfield_12313140',
-        'feature': 'customfield_12318341',
-        'epic': 'customfield_12311140'
+        'parent': "data->'fields'->'parent'->>'key'",
+        'parent_link': "data->'fields'->'customfield_12313140'->>'key'",
+        'feature': "data->'fields'->'customfield_12318341'->>'key'",
+        'epic': "data->'fields'->>'customfield_12311140'"
     }
 
 
@@ -74,9 +91,23 @@ def _get_issue_map():
     issue_map = {}
 
     # build the query ...
-    field_cols = [f"data->'fields'->>'{x[1]}' {x[0]}" for x in field_map.items()]
+    field_cols = [f"{x[1]} {x[0]}" for x in field_map.items()]
     field_cols = ', '.join(field_cols)
     sql = f'SELECT key,type,state,summary,{field_cols} FROM jira_issues'
+
+    # if filter_key or filter_project add conditionals ...
+    if filter_key or filter_project:
+        sql += ' WHERE '
+        clauses = []
+        if filter_project:
+            clauses.append(f"project='{filter_project}'")
+        if filter_key:
+            subclauses = []
+            for field_key, field_col in field_map.items():
+                clause = f"data->'fields'->>'{field_col}'='{filter_key}'"
+                subclauses.append(clause)
+            clauses.append('(' + ' OR '.join(subclauses) + ')')
+        sql += ' ' + ' AND '.join(clauses)
 
     # map out all issues ...
     with conn.cursor() as cur:
@@ -92,6 +123,8 @@ def _get_issue_map():
             for idx,x in enumerate(colnames):
                 ds[x] = row[idx]
             issue_map[ikey] = ds
+            #if ikey == 'AAP-16435':
+            #    import epdb; epdb.st()
 
     return issue_map
 
@@ -125,11 +158,14 @@ def map_child_states(parent_key, imap):
 
 def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, map_progress=False):
 
+    logger.info('make tickets tree')
+
     # get all issues
     issue_map = _get_issue_map()
 
     # convert to relationship nodes
     nodes = _make_nodes(issue_map)
+    #import epdb; epdb.st()
 
     # make a mapping for the final result ...
     imap = {}
@@ -157,25 +193,8 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, ma
         elif imap[ik]['summary'] is None:
             imap[ik]['summary'] = idata['summary']
 
-    print(f'UNFILTERED KEYS {len(list(imap.keys()))}')
+    logger.info(f'make tickets tree: unfiltered keys {len(list(imap.keys()))}')
     imap_copy = copy.deepcopy(imap)
-
-    '''
-    # recursively compute % completion for each ticket ...
-    # top_keys = [x[0] for x in imap.items() if not x[1]['parent_key']]
-    if map_progress:
-        for ik,idata in imap.items():
-            imap[ik]['completed'] = None
-            child_states = map_child_states(ik, imap)
-            if not child_states:
-                imap[ik]['completed'] = '100%'
-                continue
-            closed = child_states.count('Closed')
-            percent_complete = float(closed) / float(len(child_states))
-            percent_complete *= 100
-            percent_complete = round(percent_complete)
-            imap[ik]['completed'] = str(percent_complete) + '%'
-    '''
 
     if filter_key or filter_project:
 
@@ -239,10 +258,12 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, ma
         imap = filtered
 
 
-    if show_closed:
+    '''
+    if not show_closed:
         for k,v in copy.deepcopy(imap).items():
             if v['status'] == 'Closed':
                 imap.pop(k)
+    '''
 
     # recursively compute % completion for each ticket ...
     # top_keys = [x[0] for x in imap.items() if not x[1]['parent_key']]
@@ -254,7 +275,7 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, ma
             imap[ik]['completed'] = None
             child_states = map_child_states(ik, imap_copy)
             if not child_states:
-                if imap[ik]['status'] == 'Closed':
+                if imap[ik]['status'] in ['Closed', 'Release Pending']:
                     imap[ik]['completed'] = '100%'
                 else:
                     imap[ik]['completed'] = '0%'
@@ -265,14 +286,83 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, ma
             percent_complete = round(percent_complete)
             imap[ik]['completed'] = str(percent_complete) + '%'
 
-    print(f'FILTERED KEYS {len(list(imap.keys()))}')
+    if not show_closed:
+        for k,v in copy.deepcopy(imap).items():
+            if v['status'] == 'Closed':
+                imap.pop(k)
+
+    logger.info(f'make tickets tree: filtered keys {len(list(imap.keys()))}')
 
     #import epdb; epdb.st()
 
     return imap
 
 
+def make_child_tree(filter_key=None, filter_project=None, show_closed=True, map_progress=False):
+
+    logger.info('make child tree')
+
+    tree = make_tickets_tree(filter_project=filter_project, filter_key=filter_key, show_closed=show_closed, map_progress=map_progress)
+
+    if filter_key:
+        logger.info(f'make child tree: reduce to {filter_key}')
+
+        children = []
+        for k,v in tree.items():
+            if v['parent_key'] == filter_key:
+                children.append(k)
+
+        changed = True
+        while changed:
+            changed = False
+            for k,v in tree.items():
+                if k in children:
+                    continue
+                if v['parent_key'] in children:
+                    children.append(k)
+                    changed = True
+
+        children.append(filter_key)
+        for key in list(tree.keys()):
+            if key not in children:
+                tree.pop(key)
+
+    if filter_project:
+        logger.info(f'make child tree: reduce to {filter_project}')
+
+        to_delete = []
+        for key in tree.keys():
+            if not key.startswith(filter_project + '-'):
+                to_delete.append(key)
+        for td in to_delete:
+            tree.pop(td)
+
+
+    if filter_key:
+        assert filter_key in tree
+
+    #import epdb; epdb.st()
+    return tree
+
+
+def main():
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('action', choices=['children', 'full'])
+    parser.add_argument('--show-closed', action='store_true')
+    parser.add_argument('--map-progress', action='store_true')
+    parser.add_argument('--project')
+    parser.add_argument('--key')
+    args = parser.parse_args()
+
+    if args.action == 'full':
+        #pprint(make_tickets_tree(filter_key='AAH-2968', filter_project=None, show_closed=True))
+        #pprint(make_tickets_tree(filter_project='AAH', show_closed=True))
+        pprint(make_tickets_tree(filter_project=args.project, show_closed=args.show_closed, map_progress=args.map_progress))
+
+    if args.action == 'children':
+        pprint(make_child_tree(filter_project=args.project, filter_key=args.key, show_closed=args.show_closed, map_progress=args.map_progress))
+
+
 if __name__ == '__main__':
-    #pprint(make_tickets_tree(filter_key='AAH-2968', filter_project=None, show_closed=True))
-    #pprint(make_tickets_tree(filter_project='AAH', show_closed=True))
-    pprint(make_tickets_tree(filter_project='AAH', show_closed=True, map_progress=True))
+    main()
