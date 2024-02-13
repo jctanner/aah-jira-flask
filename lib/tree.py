@@ -18,9 +18,10 @@ conn = jdbw.get_connection()
 atexit.register(conn.close)
 
 
-def _make_nodes(issue_map):
+def _make_nodes(issue_map, debug=True):
 
-    logger.info('make nodes')
+    if debug:
+        logger.info('make nodes')
 
     # recompute the releationships now ...
     nodes = []
@@ -65,9 +66,10 @@ def _make_nodes(issue_map):
     return nodes
 
 
-def _get_issue_map(filter_key=None, filter_project=None):
+def _get_issue_map(filter_key=None, filter_project=None, debug=True):
 
-    logger.info('get issue map')
+    if debug:
+        logger.info('get issue map')
 
     # relationship fields are ID'fied
     field_map = {
@@ -120,9 +122,10 @@ def _get_issue_map(filter_key=None, filter_project=None):
     return issue_map
 
 
-def map_child_states(parent_key, imap):
+def map_child_states(parent_key, imap, debug=True):
 
-    print(f'map children for {parent_key}')
+    if debug:
+        logger.info(f'map children for {parent_key}')
 
     parent_data = imap[parent_key]
     child_keys = set()
@@ -147,15 +150,16 @@ def map_child_states(parent_key, imap):
     return sorted(states)
 
 
-def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, map_progress=False):
+def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, map_progress=False, debug=True):
 
-    logger.info('make tickets tree')
+    if debug:
+        logger.info('make tickets tree')
 
     # get all issues
-    issue_map = _get_issue_map()
+    issue_map = _get_issue_map(debug=debug)
 
     # convert to relationship nodes
-    nodes = _make_nodes(issue_map)
+    nodes = _make_nodes(issue_map, debug=debug)
     #import epdb; epdb.st()
 
     # make a mapping for the final result ...
@@ -184,7 +188,8 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, ma
         elif imap[ik]['summary'] is None:
             imap[ik]['summary'] = idata['summary']
 
-    logger.info(f'make tickets tree: unfiltered keys {len(list(imap.keys()))}')
+    if debug:
+        logger.info(f'make tickets tree: unfiltered keys {len(list(imap.keys()))}')
     imap_copy = copy.deepcopy(imap)
 
     if filter_key or filter_project:
@@ -264,7 +269,7 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, ma
     else:
         for ik,idata in imap.items():
             imap[ik]['completed'] = None
-            child_states = map_child_states(ik, imap_copy)
+            child_states = map_child_states(ik, imap_copy, debug=debug)
             if not child_states:
                 if imap[ik]['status'] in ['Closed', 'Release Pending']:
                     imap[ik]['completed'] = '100%'
@@ -282,7 +287,8 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, ma
             if v['status'] == 'Closed':
                 imap.pop(k)
 
-    logger.info(f'make tickets tree: filtered keys {len(list(imap.keys()))}')
+    if debug:
+        logger.info(f'make tickets tree: filtered keys {len(list(imap.keys()))}')
 
     #import epdb; epdb.st()
 
