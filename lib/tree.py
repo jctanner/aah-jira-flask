@@ -150,17 +150,18 @@ def map_child_states(parent_key, imap, debug=True):
     return sorted(states)
 
 
-def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, map_progress=False, debug=True):
+def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, map_progress=False, debug=True, issue_map=None, nodes=None):
 
     if debug:
         logger.info('make tickets tree')
 
     # get all issues
-    issue_map = _get_issue_map(debug=debug)
+    if issue_map is None:
+        issue_map = _get_issue_map(debug=debug)
 
     # convert to relationship nodes
-    nodes = _make_nodes(issue_map, debug=debug)
-    #import epdb; epdb.st()
+    if nodes is None:
+        nodes = _make_nodes(issue_map, debug=debug)
 
     # make a mapping for the final result ...
     imap = {}
