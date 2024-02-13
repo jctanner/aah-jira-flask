@@ -1,8 +1,15 @@
+import json
 import os
 import re
 
+import sqlparse
 
-def query_parse(query, field_map, cols=None, debug=False):
+
+with open('lib/static/json/fields.json', 'r') as f:
+    FIELD_MAP = json.loads(f.read())
+
+
+def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
 
     if cols is None:
         cols = [
@@ -65,6 +72,17 @@ def query_parse(query, field_map, cols=None, debug=False):
             else:
                 clause = f"{col} IS NOT NULL"
 
+        elif operator == '=' and _col == 'fix_versions':
+
+            clause = (
+                'EXISTS ('
+                '   SELECT 1'
+                "   FROM jsonb_array_elements(data->'fields'->'fixVersions') AS version(version_element)"
+                f"   WHERE version_element->>'name' = '{v}'"
+                ')'
+            )
+
+
         elif operator == '~':
             clause = f"{col} LIKE '%{v}%'"
 
@@ -82,6 +100,9 @@ def query_parse(query, field_map, cols=None, debug=False):
     WHERE = 'WHERE ' + ' AND '.join(clauses)
 
     sql = f"SELECT {','.join(cols)} FROM jira_issues {WHERE}"
+
     if debug or os.environ.get('QUERY_DEBUG'):
-        print(sql)
+        formatted = sqlparse.format(sql, reindent=True, keyword_case='lower')
+        print(formatted)
+
     return sql

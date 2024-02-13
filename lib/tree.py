@@ -44,19 +44,13 @@ def _make_nodes(issue_map):
             #   epic: https://issues.redhat.com/browse/AAP-16172
             #   feature: https://issues.redhat.com/browse/ANSTRAT-37
 
+            # use an order of precedence ...
             if idata['parent']:
                 parent_key = idata['parent']
             elif idata['epic']:
                 parent_key = idata['epic']
             elif idata['feature']:
                 parent_key = idata['feature']
-
-            '''
-            # sometimes the key is a json dict ...
-            if '{' in parent_key:
-                parent_key = json.loads(parent_key)
-                parent_key = parent_key['key']
-            '''
 
             ds['parent'] = parent_key
             if parent_key in issue_map:
@@ -65,9 +59,6 @@ def _make_nodes(issue_map):
                 ds['parent_type'] = parent['type']
                 ds['parent_status'] = parent['state']
                 ds['parent_summary'] = parent['summary']
-
-        #if ikey == 'AAP-16435':
-        #    import epdb; epdb.st()
 
         nodes.append(ds)
 
@@ -298,24 +289,27 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, ma
     return imap
 
 
-def make_child_tree(filter_key=None, filter_project=None, show_closed=True, map_progress=False):
+def make_child_tree(filter_key=None, filter_project=None, show_closed=True, map_progress=False, tree=None):
 
     logger.info('make child tree')
 
-    tree = make_tickets_tree(filter_project=filter_project, filter_key=filter_key, show_closed=show_closed, map_progress=map_progress)
+    if tree is None:
+        itree = make_tickets_tree(filter_project=filter_project, filter_key=filter_key, show_closed=show_closed, map_progress=map_progress)
+    else:
+        itree = copy.deepcopy(tree)
 
     if filter_key:
         logger.info(f'make child tree: reduce to {filter_key}')
 
         children = []
-        for k,v in tree.items():
+        for k,v in itree.items():
             if v['parent_key'] == filter_key:
                 children.append(k)
 
         changed = True
         while changed:
             changed = False
-            for k,v in tree.items():
+            for k,v in itree.items():
                 if k in children:
                     continue
                 if v['parent_key'] in children:
@@ -323,26 +317,26 @@ def make_child_tree(filter_key=None, filter_project=None, show_closed=True, map_
                     changed = True
 
         children.append(filter_key)
-        for key in list(tree.keys()):
+        for key in list(itree.keys()):
             if key not in children:
-                tree.pop(key)
+                itree.pop(key)
 
     if filter_project:
         logger.info(f'make child tree: reduce to {filter_project}')
 
         to_delete = []
-        for key in tree.keys():
+        for key in itree.keys():
             if not key.startswith(filter_project + '-'):
                 to_delete.append(key)
         for td in to_delete:
-            tree.pop(td)
+            itree.pop(td)
 
 
     if filter_key:
-        assert filter_key in tree
+        assert filter_key in itree
 
     #import epdb; epdb.st()
-    return tree
+    return itree
 
 
 def main():

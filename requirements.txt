@@ -21,3 +21,4 @@ psycopg-binary
 pytz
 pandas
 numpy
+sqlparse
