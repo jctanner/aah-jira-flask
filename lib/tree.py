@@ -296,17 +296,19 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, ma
     return imap
 
 
-def make_child_tree(filter_key=None, filter_project=None, show_closed=True, map_progress=False, tree=None):
+def make_child_tree(filter_key=None, filter_project=None, show_closed=True, map_progress=False, tree=None, debug=True):
 
-    logger.info('make child tree')
+    if debug:
+        logger.info('make child tree')
 
     if tree is None:
-        itree = make_tickets_tree(filter_project=filter_project, filter_key=filter_key, show_closed=show_closed, map_progress=map_progress)
+        itree = make_tickets_tree(filter_project=filter_project, filter_key=filter_key, show_closed=show_closed, map_progress=map_progress, debug=debug)
     else:
         itree = copy.deepcopy(tree)
 
     if filter_key:
-        logger.info(f'make child tree: reduce to {filter_key}')
+        if debug:
+            logger.info(f'make child tree: reduce to {filter_key}')
 
         children = []
         for k,v in itree.items():
@@ -329,7 +331,8 @@ def make_child_tree(filter_key=None, filter_project=None, show_closed=True, map_
                 itree.pop(key)
 
     if filter_project:
-        logger.info(f'make child tree: reduce to {filter_project}')
+        if debug:
+            logger.info(f'make child tree: reduce to {filter_project}')
 
         to_delete = []
         for key in itree.keys():

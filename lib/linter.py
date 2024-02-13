@@ -50,8 +50,8 @@ def rule_parent_status_matches_child_status(tree, key):
 
     elif key_status == 'Backlog':
         # none of the children should be in progress
-        if 'In Progress' in child_states:
-            logger.error(f'[RULE {rule_id}] ERROR: {key} is "Backlog" but has children In-Progress')
+        if any(item in child_states for item in active_states):
+            logger.error(f'[RULE {rule_id}] ERROR: {key} is "Backlog" but has active children')
             return rule_id, False
 
         return rule_id, True
@@ -63,11 +63,14 @@ def rule_parent_status_matches_child_status(tree, key):
             return rule_id, True
 
         if not any(item in child_states for item in active_states):
-            logger.error(f'[RULE {rule_id}] ERROR: {key} is "In-Progress" but none of it\'s children are')
+            logger.error(f'[RULE {rule_id}] ERROR: {key} is "In-Progress" without any active children')
             return rule_id, False
 
+    elif key_status == 'Release Pending':
+        if sorted(set(child_states)) in [['Closed'], ['Release Pending'], ['Closed', 'Release Pending']]:
+            return rule_id, True
+
     print(f'{key_status} -> {child_states}')
-    import epdb; epdb.st()
     return rule_id, True
 
 
@@ -204,15 +207,32 @@ def rule_child_fix_version_matches_parent(tree, imap, key):
         pversion = pversions[0]
 
     child_versions = []
-    for k,v in imap.items():
+    child_keys = sorted(imap.keys(), key=lambda x: sortable_key_from_ikey(x))
+    for k in child_keys:
+        v = imap[k]
         if k == key:
             continue
+
+        # bad issue?
         if not v.get('data'):
             continue
+
+        # should we care if the child is already closed?
+        if v['state'] == 'Closed':
+            continue
+
+        # ignore the parent issue for now ...
+        if tree[key]['parent_key'] == k:
+            continue
+
         _pversions = [x['name'] for x in v['data']['fields']['fixVersions']]
+        logger.debug(f'\t{k} fixversions:{_pversions}')
         _pversion = None
         if _pversions:
-            _pversion = _pversions[0]
+            if pversion in _pversions:
+                _pversion = pversion
+            else:
+                _pversion = _pversions[0]
 
         child_versions.append(_pversion)
 
@@ -304,6 +324,7 @@ class Linter:
     def lint_key(self, key):
         logger.info(f'linting {key}')
         tree = self.get_tree(filter_key=key)
+        ctree = self.get_child_tree(tree=tree, filter_key=key)
 
         issue_data = self.get_issue(key)
         imap = {}
@@ -314,7 +335,7 @@ class Linter:
 
         rule_id, rule_result = rule_parent_status_matches_child_status(tree, key)
         rule_id, rule_result = rule_anstrat_work_criteria(key, issue_data)
-        rule_id, rule_result = rule_child_fix_version_matches_parent(tree, imap, key)
+        rule_id, rule_result = rule_child_fix_version_matches_parent(ctree, imap, key)
 
 
 
