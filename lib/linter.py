@@ -2,6 +2,7 @@
 
 import argparse
 import atexit
+import json
 
 from jira_wrapper import JiraWrapper
 from database import JiraDatabaseWrapper
@@ -18,6 +19,13 @@ from logzero import logger
 jdbw = JiraDatabaseWrapper()
 conn = jdbw.get_connection()
 atexit.register(conn.close)
+
+
+with open('lib/static/json/fields.json', 'r') as f:
+    FIELD_MAP = json.loads(f.read())
+FIELD_MAP = dict((x['name'], x) for x in FIELD_MAP)
+
+AAP_PROJECTS = ['AA', 'AAP', 'AAH']
 
 
 def rule_parent_status_matches_child_status(tree, key):
@@ -49,9 +57,16 @@ def rule_parent_status_matches_child_status(tree, key):
         return rule_id, True
 
     elif key_status == 'Backlog':
+        '''
         # none of the children should be in progress
         if any(item in child_states for item in active_states):
             logger.error(f'[RULE {rule_id}] ERROR: {key} is "Backlog" but has active children')
+            return rule_id, False
+        '''
+
+        # ccopello 2024-02-13 ...
+        if 'Backlog' not in child_states:
+            logger.error(f'[RULE {rule_id}] ERROR: {key} is "Backlog" but has no children in backlog')
             return rule_id, False
 
         return rule_id, True
@@ -168,7 +183,7 @@ def rule_anstrat_work_criteria(key, issue_data):
     # check if PRD or ADR
     links = sections.get('Links', [])
     if len(links) == 0 and 'prd' not in dlinks:
-        logger.error(f'[RULE {rule_id}.1] ERROR: {key} has no links for ADRs or PRDs')
+        logger.error(f'[RULE {rule_id}.1] ERROR: {key} is In-Progress but has no links for ADRs or PRDs')
         final_state = False
 
     elif 'prd' not in dlinks:
@@ -214,7 +229,7 @@ def rule_child_fix_version_matches_parent(tree, imap, key):
             continue
 
         # bad issue?
-        if not v.get('data'):
+        if not v or not v.get('data'):
             continue
 
         # should we care if the child is already closed?
@@ -245,6 +260,85 @@ def rule_child_fix_version_matches_parent(tree, imap, key):
         logger.error(f'[RULE {rule_id}] ERROR: {key} is fix-version:{pversion} but has children with {invalid}')
         return rule_id, False
 
+    return rule_id, True
+
+
+def rule_collaborative_delivery_hierarchy(tree, imap, key):
+
+    rule_id = 4
+
+    #if imap[key]['project'] != 'ANSTRAT':
+    #    return rule_id, True
+
+    this_project = imap[key]['project']
+
+    parent_link_field = FIELD_MAP['Parent Link']['id']
+    parent_link = imap[key]['data']['fields'][parent_link_field]
+    parent_project = None
+    parent_type = None
+    if parent_link and imap.get(parent_link):
+        parent_type = imap[parent_link]['type']
+        parent_project = imap[parent_link]['project']
+
+    epic_link_field = FIELD_MAP['Epic Link']['id']
+    epic_link = imap[key]['data']['fields'][epic_link_field]
+    epic_project = None
+    epic_type = None
+    if epic_link:
+        epic_type = imap[epic_link]['type']
+        epic_project = imap[epic_link]['project']
+
+    # if feature or initiative, should link to outcome
+    # if outcome, should link to HATSTRAT strategic goal
+
+    iproject = imap[key]['project']
+    itype = imap[key]['type']
+
+    if imap[key]['project'] == 'ANSTRAT':
+        if imap[key]['type'] not in ['Feature', 'Initiative', 'Outcome']:
+            logger.error(f'[RULE {rule_id}.1] ERROR: {key} is a "{itype}" which is not Feature/Initiative/Outcome')
+            return rule_id, False
+
+        if itype == 'Outcome':
+            # should be linked to HATSTRAT
+            if not parent_link:
+                logger.error(f'[RULE {rule_id}.2] ERROR: {key} is an "Outcome" without a parent link to HATSTRAT')
+                return rule_id, False
+
+            if parent_project != 'HATSTRAT':
+                logger.error(f'[RULE {rule_id}.3] ERROR: {key} is an "Outcome" with a parent link to {parent_project} NOT HATSTRAT')
+                return rule_id, False
+
+        if itype in ['Feature', 'Initiative']:
+            if not parent_link:
+                logger.error(f'[RULE {rule_id}.4] ERROR: {key} is an "{itype}" without a parent link to an Outcome')
+                return rule_id, False
+
+            # is the parent an Outcome?
+            if parent_type != 'Outcome':
+                logger.error(f'[RULE {rule_id}.5] ERROR: {key} is an "{itype}" linked to {parent_link} which is "{parent_type}" NOT "Outcome"')
+                return rule_id, False
+
+    elif itype == 'Epic' and iproject in AAP_PROJECTS:
+        if not parent_link:
+            logger.error(f'[RULE {rule_id}.6] ERROR: {key} does not have a parent link to ANSTRAT')
+            return rule_id, False
+        if parent_project != 'ANSTRAT':
+            logger.error(f'[RULE {rule_id}.7] ERROR: {key} has a parent link to {parent_project} NOT ANSTRAT')
+            return rule_id, False
+
+    elif itype in ['Story', 'Task', 'Spike'] and iproject in AAP_PROJECTS:
+        if not epic_link:
+            logger.error(f'[RULE {rule_id}.8] ERROR: {key} is a {itype} but does not have an Epic link')
+            return rule_id, False
+        #if epic_project != iproject:
+        #    logger.error(f'[RULE {rule_id}.7] ERROR: {key} is a {itype} has an epic link to {epic_project} NOT {iproject}')
+        #    return rule_id, False
+        if epic_type != 'Epic':
+            logger.error(f'[RULE {rule_id}.9] ERROR: {key} is a {itype} has an epic link to {epic_type} NOT Epic')
+            return rule_id, False
+
+    #import epdb; epdb.st()
     return rule_id, True
 
 
@@ -318,8 +412,15 @@ class Linter:
                 for idx,x in enumerate(colnames):
                     ds[x] = row[idx]
                 rows.append(ds)
-        return rows[0]
 
+        '''
+        if not rows:
+            import epdb; epdb.st()
+        return rows[0]
+        '''
+        if rows:
+            return rows[0]
+        return None
 
     def lint_key(self, key):
         logger.info(f'linting {key}')
@@ -333,9 +434,20 @@ class Linter:
             imap[k] = vdata
         imap[key] = issue_data
 
-        rule_id, rule_result = rule_parent_status_matches_child_status(tree, key)
+        parent_link_field = FIELD_MAP['Parent Link']['id']
+        parent_link = imap[key]['data']['fields'][parent_link_field]
+        if parent_link:
+            imap[parent_link] = self.get_issue(parent_link)
+
+        epic_link_field = FIELD_MAP['Epic Link']['id']
+        epic_link = imap[key]['data']['fields'][epic_link_field]
+        if epic_link:
+            imap[epic_link] = self.get_issue(epic_link)
+
+        rule_id, rule_result = rule_parent_status_matches_child_status(ctree, key)
         rule_id, rule_result = rule_anstrat_work_criteria(key, issue_data)
         rule_id, rule_result = rule_child_fix_version_matches_parent(ctree, imap, key)
+        rule_id, rule_result = rule_collaborative_delivery_hierarchy(ctree, imap, key)
 
 
 

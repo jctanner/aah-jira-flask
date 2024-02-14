@@ -90,10 +90,13 @@ def ui_issues_key(issue_key):
         }
         issue_description = ''
 
+    #formatted_description = jira_description_to_html(issue_description)
+    formatted_desc = render_jira_markup(issue_description)
+
     return render_template(
         'issue.html',
         issue_key=issue_key,
-        issue_description=issue_description,
+        issue_description=formatted_desc,
         issue_data=issue_data,
         field_map=field_map
     )

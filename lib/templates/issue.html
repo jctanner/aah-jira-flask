@@ -18,8 +18,9 @@
             <h2>{{ issue_data['summary'] }}</h2>
             <hr>
 
-            <div style="white-space: pre-wrap;">
-{{ issue_description }}
+            <!--<div style="white-space: pre-wrap;">-->
+            <div >
+{{ issue_description | safe }}
             </div>
             <hr>
 
