@@ -320,7 +320,8 @@ def api_labels():
 @app.route('/api/tickets_tree/')
 def tickets_tree():
 
-    show_closed = request.args.get('closed') in ['false', 'False', '0']
+    #show_closed = request.args.get('closed') in ['false', 'False', '0']
+    show_closed = request.args.get('closed') in ['true', 'True', '1']
     show_progress = request.args.get('progress') in ['true', 'True', '1']
     filter_key = request.args.get('key')
     filter_project = request.args.get('project')
