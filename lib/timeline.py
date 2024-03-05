@@ -29,6 +29,7 @@ def make_timeline(
     filter_state=None,
     start=None,
     finish=None,
+    jql=None,
 ):
 
     sql = 'select project,number,key'

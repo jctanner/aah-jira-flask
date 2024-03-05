@@ -427,8 +427,12 @@ def api_tickets_timeline():
     if projects:
         project = projects[0]
 
+    jql = request.args.get('jql')
+    print(f'JQL: {jql}')
+
     # make_timeline(filter_key=None, filter_project=None, filter_user=None)
     ds = make_timeline(
+        jql=jql,
         start=start,
         finish=end,
         filter_project=project,

@@ -192,6 +192,10 @@
                     apiParams.append('state', urlParams.get('state'));
                 }
 
+                if (urlParams.get('jql') !== null) {
+                    apiParams.append('jql', urlParams.get('jql'));
+                }
+
                 const apiString = apiParams.toString();
                 const apiUrl = `/api/timeline/?${apiString}`;
 
