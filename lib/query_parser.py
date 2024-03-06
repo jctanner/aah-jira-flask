@@ -11,6 +11,8 @@ with open('lib/static/json/fields.json', 'r') as f:
 
 def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
 
+    _query = query[:]
+
     if cols is None:
         cols = [
             'key',
@@ -26,23 +28,19 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
             'summary'
         ]
 
-    #pattern = r'(\w+)\s*([=!<>]+)\s*([\w-]+)'
-
     pattern = r'(\w+)\s*([=!<>~]+)\s*([\w@.-]+)'
     matches = re.findall(pattern, query)
     parsed_query = {}
     for match in matches:
         key, operator, value = match
-        parsed_query[(key, operator)] = value
 
-    if debug or os.environ.get('QUERY_DEBUG'):
-        print(f'PARSED: {parsed_query}')
+        substring = ''.join(match)
+        if substring not in query:
+            continue
 
-    clauses = []
-
-    for k,v in parsed_query.items():
-        col = k[0]
-        _col = k[0]
+        col = key
+        _col = key
+        v = value
 
         if col == 'assignee':
             col = 'assigned_to'
@@ -64,8 +62,6 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
         elif col == 'sfdc_count':
             col = "(data->'fields'->>'customfield_12313440')::numeric"
 
-        operator = k[1]
-
         if v == 'null':
             if operator == '=':
                 clause = f"{col} IS NULL"
@@ -82,7 +78,6 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
                 ')'
             )
 
-
         elif operator == '~':
             clause = f"{col} LIKE '%{v}%'"
 
@@ -95,9 +90,19 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
             else:
                 clause = f"{col}{operator}'{v}'"
 
-        clauses.append(clause)
+        query = query.replace(substring, clause)
 
-    WHERE = 'WHERE ' + ' AND '.join(clauses)
+    # spaces between clauses should be AND by default unless an or/OR
+    clauses = re.split(r"\s(?=(?:[^']*'[^']*')*[^']*$)", query)
+    result = []
+    for i, term in enumerate(clauses):
+        if i > 0 and term not in ['LIKE', 'AND', 'OR'] and not clauses[i - 1].endswith(('LIKE', 'AND', 'OR')):
+            result.append('AND')
+        result.append(term)
+    print(f'RESULT: {result}')
+    query = ' '.join(result)
+
+    WHERE = 'WHERE ' + query
 
     sql = f"SELECT {','.join(cols)} FROM jira_issues {WHERE}"
 
