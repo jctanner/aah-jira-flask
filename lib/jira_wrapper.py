@@ -28,6 +28,7 @@ from constants import PROJECTS, ISSUE_COLUMN_NAMES
 from database import JiraDatabaseWrapper
 from utils import (
     history_to_dict,
+    sortable_key_from_ikey,
 )
 import psycopg
 
@@ -135,16 +136,37 @@ class JiraWrapper:
 
         self.jdbw.check_table_and_create('jira_issue_events')
 
-        if datawrappers is None:
-            datawrappers = self.dcw.data_wrappers
+        if not projects:
+            if datawrappers is None:
+                datawrappers = self.dcw.data_wrappers
+        else:
+
+            # If project(s) are given, try to be smart about what files to load ...
+
+            with self.conn.cursor() as cur:
+
+                if idmap is None:
+                    cur.execute('SELECT id FROM jira_issue_events ORDER BY id')
+                    rows = cur.fetchall()
+                    idmap = dict((x[0], None) for x in rows)
+
+                sql = 'SELECT key,project,number,datafile FROM jira_issues'
+                if projects:
+                    sql += ' WHERE ' + ' OR '.join(f"project='{x}'" for x in projects)
+                cur.execute(sql)
+                cols = [x[0] for x in cur.description]
+                _rows = cur.fetchall()
+                rows = []
+                for idr,row in enumerate(_rows):
+                    ds = {}
+                    for idc,col in enumerate(cols):
+                        ds[col] = row[idc]
+                    rows.append(ds)
+
+            rows = sorted(rows, key=lambda x: sortable_key_from_ikey(x['key']))
+            datawrappers = [DataWrapper(x['datafile']) for x in rows]
 
         with self.conn.cursor() as cur:
-
-            if idmap is None:
-                cur.execute('SELECT id FROM jira_issue_events ORDER BY id')
-                rows = cur.fetchall()
-                idmap = dict((x[0], None) for x in rows)
-
             for dw in datawrappers:
 
                 if projects and dw.project not in projects:
@@ -160,15 +182,9 @@ class JiraWrapper:
                 if logit:
                     logger.info(f'map events for {dw.key}:{dw.datafile}')
 
-                #with open(fn, 'r') as f:
-                #    ds = json.loads(f.read())
-                #key = ds['key']
                 key = dw.key
                 project = dw.project
                 number = dw.number
-                #history = ds.get('history', [])
-                #if history is None:
-                #    continue
 
                 if dw.history is None:
                     continue
@@ -722,7 +738,10 @@ def main():
 
     if args.operation == 'load':
         jw = JiraWrapper()
-        jw.load_issues_and_events_from_disk()
+        if args.events_only:
+            jw.map_events(projects=projects)
+        else:
+            jw.load_issues_and_events_from_disk(projects=projects)
 
     elif args.events_only:
         jw = JiraWrapper()
