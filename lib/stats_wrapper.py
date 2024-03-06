@@ -65,11 +65,8 @@ class StatsWrapper:
 
         if jql:
             print(f'JQL: {jql}')
-            with open('lib/static/json/fields.json', 'r') as f:
-                field_map = json.loads(f.read())
-            field_map = dict((x['id'], x) for x in field_map)
             cols = ['number', 'created', 'updated', 'data', 'project', 'key', 'state']
-            qs = query_parse(jql, cols=cols, field_map=field_map, debug=True)
+            qs = query_parse(jql, cols=cols, debug=True)
         else:
             placeholders = []
             for project in projects:

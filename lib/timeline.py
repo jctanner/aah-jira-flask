@@ -12,6 +12,7 @@ from pprint import pprint
 from logzero import logger
 
 from database import JiraDatabaseWrapper
+from query_parser import query_parse
 
 
 jdbw = JiraDatabaseWrapper()
@@ -32,37 +33,46 @@ def make_timeline(
     jql=None,
 ):
 
-    sql = 'select project,number,key'
-    sql += ',created,updated,closed,created_by,summary,assigned_to,type,state,history'
-    sql += ' from jira_issues'
+    cols = ['created', 'created_by', 'summary', 'assigned_to', 'type', 'history', 'updated', 'state', 'project', 'number', 'key']
 
-    if filter_project:
-        sql += f" WHERE project='{filter_project}'"
+    if jql:
+        print(f'JQL: {jql}')
+        sql = query_parse(jql, cols=cols, debug=True)
 
-    if filter_assignee:
-        if 'WHERE' in sql:
-            sql += f" AND assigned_to like '%{filter_assignee}%'"
-        else:
-            sql += f" WHERE assigned_to like '%{filter_assignee}%'"
+    else:
 
-    if filter_state:
+        #sql = 'select project,number,key'
+        #sql += ',created,updated,closed,created_by,summary,assigned_to,type,state,history'
+        #sql += ' from jira_issues'
+        sql = 'select ' + ','.join(cols) + ' from jira_issues'
 
-        operator = '='
-        val = filter_state
-        if val.startswith('-'):
-            operator = '!='
-            val = val.lstrip('-')
+        if filter_project:
+            sql += f" WHERE project='{filter_project}'"
 
-        if 'WHERE' in sql:
-            sql += f" AND state{operator}'{val}'"
-        else:
-            sql += f" WHERE state{operator}'{val}'"
+        if filter_assignee:
+            if 'WHERE' in sql:
+                sql += f" AND assigned_to like '%{filter_assignee}%'"
+            else:
+                sql += f" WHERE assigned_to like '%{filter_assignee}%'"
 
-    if filter_key:
-        if 'WHERE' in sql:
-            sql += f" AND key='{filter_key}'"
-        else:
-            sql += f" WHERE key='{filter_key}'"
+        if filter_state:
+
+            operator = '='
+            val = filter_state
+            if val.startswith('-'):
+                operator = '!='
+                val = val.lstrip('-')
+
+            if 'WHERE' in sql:
+                sql += f" AND state{operator}'{val}'"
+            else:
+                sql += f" WHERE state{operator}'{val}'"
+
+        if filter_key:
+            if 'WHERE' in sql:
+                sql += f" AND key='{filter_key}'"
+            else:
+                sql += f" WHERE key='{filter_key}'"
 
     print(sql)
 
