@@ -483,7 +483,7 @@ def main():
     kwargs= {
         'projects': args.projects,
         'frequency': args.frequency,
-        'fields': args.fields,
+        #'fields': args.fields,
         'start': args.start,
         'end': args.end,
         'jql': args.jql,
