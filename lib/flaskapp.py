@@ -81,6 +81,7 @@ def ui_issues_key(issue_key):
 
     if rows:
         issue_data = rows[0]
+        issue_description_raw = rows[0]['description']
         issue_description = render_jira_markup(rows[0]['description'])
     else:
         issue_data = {
@@ -89,6 +90,7 @@ def ui_issues_key(issue_key):
             }
         }
         issue_description = ''
+        issue_description_raw = ''
 
     #formatted_description = jira_description_to_html(issue_description)
     formatted_desc = render_jira_markup(issue_description)
@@ -97,6 +99,7 @@ def ui_issues_key(issue_key):
         'issue.html',
         issue_key=issue_key,
         issue_description=formatted_desc,
+        issue_description_raw=issue_description_raw,
         issue_data=issue_data,
         field_map=field_map
     )

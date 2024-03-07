@@ -11,7 +11,7 @@ source config.sh
 while true; do
     for PROJECT in $PROJECTS; do
         echo $PROJECT
-        timeout 20m python lib/jira_wrapper.py fetch --serial --project=$PROJECT
+        timeout 20m python lib/jira_wrapper.py fetch --serial --project=$PROJECT --no-events
         timeout 20m python lib/jira_wrapper.py load --project=$PROJECT --events-only
     done
     sleep 120m

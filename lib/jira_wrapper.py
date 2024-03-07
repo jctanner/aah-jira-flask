@@ -81,6 +81,7 @@ class JiraWrapper:
         # validate auth ...
         self.jira_client.myself()
 
+    '''
     def load_issues_and_events_from_disk(self):
         self.jdbw.check_table_and_create('jira_issues')
 
@@ -104,14 +105,15 @@ class JiraWrapper:
 
         #self.map_events()
         self.process_relationships()
+    '''
 
-    def scrape(self, project=None, number=None, full=True, limit=None):
+    def scrape(self, project=None, number=None, full=True, limit=None, no_events=False):
         self.project = project
         self.number = number
 
         logger.info('scrape jira issues')
-        self.scrape_jira_issues(full=full, limit=limit)
-        self.process_relationships()
+        self.scrape_jira_issues(full=full, limit=limit, no_events=no_events)
+        #self.process_relationships()
 
     def map_relationships(self, project=None, projects=None, clean=True):
         self.project = project
@@ -136,8 +138,8 @@ class JiraWrapper:
 
         self.jdbw.check_table_and_create('jira_issue_events')
 
-        with self.conn.cursor() as cur:
-            if idmap is None:
+        if idmap is None:
+            with self.conn.cursor() as cur:
                 cur.execute('SELECT id FROM jira_issue_events ORDER BY id')
                 rows = cur.fetchall()
                 idmap = dict((x[0], None) for x in rows)
@@ -431,7 +433,7 @@ class JiraWrapper:
 
         return raw_history
 
-    def scrape_jira_issues(self, github_issue_to_find=None, full=True, limit=None):
+    def scrape_jira_issues(self, github_issue_to_find=None, full=True, limit=None, no_events=False):
 
         self.imap = {}
 
@@ -443,6 +445,8 @@ class JiraWrapper:
         invalid = invalid = sorted(self.get_invalid_numbers(self.project))
         import epdb; epdb.st()
         '''
+
+        #import epdb; epdb.st()
 
         logger.info(f'searching for {self.project} issues ...')
         qs = f'project = {self.project} ORDER BY updated'
@@ -780,12 +784,16 @@ def main():
     parser.add_argument('--limit', type=int, help='only fetch N issues')
     parser.add_argument('--relationships-only', action='store_true')
     parser.add_argument('--events-only', action='store_true')
+    parser.add_argument('--no-events', action='store_true')
     args = parser.parse_args()
 
 
     projects = PROJECTS[:]
-    if args.projects:
-        projects = [x for x in projects if x in args.projects]
+    if len(args.projects) > 0:
+        #projects = [x for x in projects if x in args.projects]
+        projects = list(args.projects)
+
+    #import epdb; epdb.st()
 
     if args.operation == 'load':
         jw = JiraWrapper()
@@ -812,13 +820,13 @@ def main():
                 if args.relationships_only:
                     jw.map_relationships(project=project, clean=False)
                 else:
-                    jw.scrape(project=project, number=args.number, full=args.full, limit=args.limit)
+                    jw.scrape(project=project, number=args.number, full=args.full, limit=args.limit, no_events=args.no_events)
             else:
                 jw = JiraWrapper()
                 if args.relationships_only:
                     jw.map_relationships(project=project, clean=False)
                 else:
-                    jw.scrape(project=project, full=args.full, limit=args.limit)
+                    jw.scrape(project=project, full=args.full, limit=args.limit, no_events=args.no_events)
     else:
 
         if args.relationships_only:
