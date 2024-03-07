@@ -105,12 +105,12 @@ class JiraWrapper:
         #self.map_events()
         self.process_relationships()
 
-    def scrape(self, project=None, number=None, full=True):
+    def scrape(self, project=None, number=None, full=True, limit=None):
         self.project = project
         self.number = number
 
         logger.info('scrape jira issues')
-        self.scrape_jira_issues(full=full)
+        self.scrape_jira_issues(full=full, limit=limit)
         self.process_relationships()
 
     def map_relationships(self, project=None, projects=None, clean=True):
@@ -136,19 +136,22 @@ class JiraWrapper:
 
         self.jdbw.check_table_and_create('jira_issue_events')
 
-        if not projects:
+        with self.conn.cursor() as cur:
+            if idmap is None:
+                cur.execute('SELECT id FROM jira_issue_events ORDER BY id')
+                rows = cur.fetchall()
+                idmap = dict((x[0], None) for x in rows)
+
+        if not projects and not self.project:
             if datawrappers is None:
                 datawrappers = self.dcw.data_wrappers
         else:
 
             # If project(s) are given, try to be smart about what files to load ...
+            if self.project and not projects:
+                projects = [self.project]
 
             with self.conn.cursor() as cur:
-
-                if idmap is None:
-                    cur.execute('SELECT id FROM jira_issue_events ORDER BY id')
-                    rows = cur.fetchall()
-                    idmap = dict((x[0], None) for x in rows)
 
                 sql = 'SELECT key,project,number,datafile FROM jira_issues'
                 if projects:
@@ -232,6 +235,8 @@ class JiraWrapper:
                     id_prefix = event_group['id']
                     for eid,event_item in enumerate(event_group['items']):
                         this_id = id_prefix + "_" + str(eid)
+                        if this_id is None:
+                            continue
                         if this_id in idmap:
                             continue
 
@@ -266,10 +271,50 @@ class JiraWrapper:
 
     def get_issue_with_history(self, issue_key, fallback=False):
 
+        '''
+        from requests.adapters import HTTPAdapter
+        from requests.packages.urllib3.util.retry import Retry
+
+        retry_strategy = Retry(
+            total=3,
+            status_forcelist=[429, 500, 502, 503, 504],
+            method_whitelist=["GET"],
+            backoff_factor=1
+        )
+
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+
+        session = self.jira_client._session
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        '''
+
         count = 1
         while True:
             logger.info(f'({count}) get history for {issue_key}')
             count += 1
+
+            '''
+            issue = self.jira_client.issue(issue_key)
+            api_url = issue.raw['self']
+            changelog_url = api_url + '?expand=changelog&maxResults=0'
+            #rr = self.jira_client._session.get(changelog_url)
+
+            try:
+                rr = session.get(changelog_url)
+            except Exception as e:
+                import epdb; epdb.st()
+                print(e)
+
+            decodeable = False
+            try:
+                rr.json()
+            except Exception as e:
+                pass
+
+            import epdb; epdb.st()
+            '''
+
             try:
                 return self.jira_client.issue(issue_key, expand='changelog')
             except requests.exceptions.JSONDecodeError as e:
@@ -386,7 +431,7 @@ class JiraWrapper:
 
         return raw_history
 
-    def scrape_jira_issues(self, github_issue_to_find=None, full=True):
+    def scrape_jira_issues(self, github_issue_to_find=None, full=True, limit=None):
 
         self.imap = {}
 
@@ -416,9 +461,11 @@ class JiraWrapper:
             while True:
                 logger.info(f'search: {qs} ...')
                 try:
-                    #issues = self.jira_client.search_issues(qs, maxResults=10000)
-                    issues = self.jira_client.search_issues(qs, maxResults=100)
-                    #issues = self.jira_client.search_issues(qs, maxResults=1000)
+                    if limit is not None:
+                        maxResults = limit
+                    else:
+                        maxResults = 100
+                    issues = self.jira_client.search_issues(qs, maxResults=maxResults)
                     break
                 except Exception as e:
                     logger.error(e)
@@ -431,6 +478,9 @@ class JiraWrapper:
         processed = []
         oldest_update = None
         for idl, issue in enumerate(issues):
+
+            if limit and idl >= limit:
+                break
 
             logger.info(f'{len(issues)}|{idl} {issue.key} {issue.fields.summary}')
             # skey = sortable_key_from_ikey(issue.key)
@@ -469,7 +519,7 @@ class JiraWrapper:
             # skip further fetching on this issue ...
             processed.append(number)
 
-        if self.number or not full:
+        if self.number or not full or limit:
             return
 
         # reconcile state ...
@@ -485,7 +535,7 @@ class JiraWrapper:
         # with that time, can we assume anything in the db that was updated -after-
         # does not need fetched again ...?
         to_skip = []
-        for number in unfetched:
+        for idn, number in enumerate(unfetched):
 
             # updated = self.get_issue_field(self.project, number, 'updated')
             updated = self.jdbw.get_issue_column(self.project, number, 'updated')
@@ -727,6 +777,7 @@ def main():
     parser.add_argument('--project', help='which project to scrape', action='append', dest='projects')
     parser.add_argument('--number', help='which number scrape', type=int, default=None)
     parser.add_argument('--full', action='store_true', help='get ALL issues not just updated')
+    parser.add_argument('--limit', type=int, help='only fetch N issues')
     parser.add_argument('--relationships-only', action='store_true')
     parser.add_argument('--events-only', action='store_true')
     args = parser.parse_args()
@@ -761,13 +812,13 @@ def main():
                 if args.relationships_only:
                     jw.map_relationships(project=project, clean=False)
                 else:
-                    jw.scrape(project=project, number=args.number, full=args.full)
+                    jw.scrape(project=project, number=args.number, full=args.full, limit=args.limit)
             else:
                 jw = JiraWrapper()
                 if args.relationships_only:
                     jw.map_relationships(project=project, clean=False)
                 else:
-                    jw.scrape(project=project, full=args.full)
+                    jw.scrape(project=project, full=args.full, limit=args.limit)
     else:
 
         if args.relationships_only:

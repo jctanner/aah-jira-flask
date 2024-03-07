@@ -30,7 +30,8 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
 
     pattern = r'(\w+)\s*([=!<>~]+)\s*([\w@.-]+)'
     matches = re.findall(pattern, query)
-    parsed_query = {}
+    query_parts = query.split()
+
     for match in matches:
         key, operator, value = match
 
@@ -90,7 +91,13 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
             else:
                 clause = f"{col}{operator}'{v}'"
 
-        query = query.replace(substring, clause)
+        #import epdb; epdb.st()
+        #query = query.replace(substring, clause)
+        for idx,x in enumerate(query_parts):
+            if x.lstrip('(').rstrip(')') == substring:
+                query_parts[idx] = clause
+
+    query = ' '.join(query_parts)
 
     # spaces between clauses should be AND by default unless an or/OR
     clauses = re.split(r"\s(?=(?:[^']*'[^']*')*[^']*$)", query)

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -x
+
 #PROJECTS="APM AAH ANSTRAT AAH AAP APPRFE BIFROST PARTNERENG"
 PROJECTS=$(curl -s http://localhost:5000/api/projects | jq .[] | tr -d '"')
 
