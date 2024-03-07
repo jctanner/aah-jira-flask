@@ -19,21 +19,34 @@
             <hr>
 
             <!--<div style="white-space: pre-wrap;">-->
-            <div >
+
+            <div id="description-rendered" display="block" style="background-color: lightblue;">
 {{ issue_description | safe }}
             </div>
+
+            <div id="description-raw" display="none" style="background-color: pink;">
+<pre>
+{{ issue_description_raw }}
+</pre>
+            </div>
+
+<br>
+<button id="description-toggle" class="btn btn-secondary" onClick="toggleDescription();">raw</button>
+
             <hr>
 
             <table>
                 <tr>
-                    <th>key</th>
-                    <th>val</th>
+                    <!--
+                    <th><strong>key</strong></th>
+                    <th><strong>val</strong></th>
+                    -->
                 <tr>
-                {% for k,v in issue_data.items() %}
+                {% for k in issue_data.keys()|sort %}
                     {% if k != 'data' and k != 'history' and k != 'description' and k != 'Description' %}
                     <tr>
                         <td>{{ k }}</td>
-                        <td>{{ v }}</td>
+                        <td>{{ issue_data[k] }}</td>
                     </tr>
                     {% endif %}
                 {% endfor %}
@@ -47,7 +60,7 @@
                     <th>name</th>
                     <th>data</th>
                 </tr>
-                {% for k,v in issue_data.data.fields | dictsort %}
+                {% for k in issue_data.data.fields.keys()|sort %}
                     <tr>
                         {% if k != 'comment' and k != 'description' and k != 'customfield_12314740' %}
                             <td>{{ k }}</td>
@@ -59,18 +72,18 @@
                             {% endif %}
 
 
-                            {% if v and v is mapping and 'value' in v %}
-                                <td>{{ v['value'] }}</td>
-                            {% elif v and v is mapping and 'name' in v %}
-                                <td>{{ v['name'] }}</td>
-                            {% elif v and v is iterable and v is not mapping and v is not string and v is not integer  %}
+                            {% if issue_data.data.fields[k] and issue_data.data.fields[k] is mapping and 'value' in issue_data.data.fields[k] %}
+                                <td>{{ issue_data.data.fields[k]['value'] }}</td>
+                            {% elif issue_data.data.fields[k]  and issue_data.data.fields[k] is mapping and 'name' in issue_data.data.fields[k] %}
+                                <td>{{ issue_data.data.fields[k]['name'] }}</td>
+                            {% elif issue_data.data.fields[k] and issue_data.data.fields[k] is iterable and issue_data.data.fields[k] is not mapping and issue_data.data.fields[k] is not string and issue_data.data.fields[k] is not integer  %}
                                 <td>
-                                    {% for v2 in v %}
+                                    {% for v2 in issue_data.data.fields[k] %}
                                         {{ v2['value'] }}
                                     {% endfor %}
                                 <td>
                             {% else %}
-                                <td>{{ v }}</td>
+                                <td>{{ issue_data.data.fields[k] }}</td>
                             {% endif %}
                         {% endif %}
                     </tr>
