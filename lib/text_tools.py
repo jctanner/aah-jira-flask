@@ -1,5 +1,11 @@
 import re
 
+from pygments import highlight
+from pygments.lexers import PythonLexer
+from pygments.formatters import HtmlFormatter
+from pygments.lexers import guess_lexer
+from pygments.lexers import get_lexer_by_name
+
 
 '''
 def replace_links(text):
@@ -14,6 +20,7 @@ def replace_links(text):
     # Use re.sub to perform the replacement
     return re.sub(pattern, replace, text)
 '''
+
 
 def replace_links(text):
     # Define the regular expression pattern
@@ -84,19 +91,143 @@ def replace_strikethrough(text):
     return re.sub(pattern, replace, text)
 
 
-def render_jira_markup(raw):
+def find_code_segments(text):
+    # Define the regular expression pattern to match the block segments
+    pattern = r'{code(:\w+)?}(.*?){code}'
+
+    # Use re.findall to find all segments matching the pattern
+    code_segments = re.findall(pattern, text, re.DOTALL)
+
+    # Return the list of block segments
+    return code_segments
+
+
+def render_code(raw):
+    code_segments = find_code_segments(raw)
+    for lang, code in code_segments:
+        if not lang:
+            lexer = guess_lexer(code)
+        else:
+            lang = lang.lstrip(':')
+            lexer = get_lexer_by_name(lang)
+
+        begin = '{code}'
+        if lang:
+            begin = '{code:' + lang + '}'
+        end = '{code}'
+
+        highlighted = highlight(code, lexer, HtmlFormatter())
+        raw = raw.replace(begin + code + end, highlighted, 1)
+
+    #import epdb; epdb.st()
+    return raw
+
+
+def replace_headers(raw):
+    '''
+    for x in range(1, 5):
+        header = f'h{x}\.'
+        pattern = header + '(.?)\\r'
+        matches = re.findall(pattern, raw)
+        import epdb; epdb.st()
+
+    '''
+
+    #import epdb; epdb.st()
+
+    #matches = re.findall(r'h[1-9]\.\s*[\w\s\d\S]+\s*\r', raw, re.DOTALL)
+    matches = re.findall(r'h(\d)\.(.*?)(?:\r|$)', raw)
+    for header_int,text in matches:
+
+        '''
+        print(f'--------> FIX {match}')
+        #header, text = match.split(None, 1)
+
+        ix = match.index('.')
+        header = match[:ix+1]
+        text = match[ix+1:]
+        #import epdb; epdb.st()
+
+        header_int = header.replace('h', '').replace('.', '').strip()
+        '''
+
+        header_start = f'<h{header_int}>'
+        header_stop = f'</h{header_int}>'
+
+        src = f'h{header_int}.{text}\r'
+        dst = header_start + text.rstrip() + header_stop + '\r'
+
+        if src in raw:
+            raw = raw.replace(src, dst)
+
+        #import epdb; epdb.st()
+
+    #import epdb; epdb.st()
+    return raw
+
+
+def render_jira_markup(raw, code=True):
+
+    print('------------------------------------ RAW START')
+    print(raw)
+    print('------------------------------------ RAW END')
+
 
     raw = replace_links(raw)
     raw = replace_emphasis(raw)
     raw = replace_insert(raw)
+    raw = replace_strikethrough(raw)
+    raw = replace_bold(raw)
+    raw = replace_headers(raw)
 
+    """
     raw = raw.replace('{*}', '*')
     raw = replace_bold(raw)
 
     raw = replace_strikethrough(raw)
+    """
+
+    raw = raw.replace('\r', '\n')
+    raw = raw.replace('\n\n', '\n')
+
+    if code:
+        raw = render_code(raw)
 
     lines = raw.split('\n')
+
+    """
+    # fix lines that end with {code} instead of {code} being on it's own line ...
+    while True:
+        found = None
+
+        for idl,line in enumerate(lines):
+            if line.strip().endswith('{code}') and line.strip() != '{code}':
+                found = idl
+                break
+
+        if not found:
+            break
+
+        # strip {code} from the end and insert it into a new line
+        lines[found] = lines[found].rstrip().rstrip('{code}')
+        lines.insert(found, '{code}')
+    """
+
+    """
+    in_code = False
     for idl,line in enumerate(lines):
+
+        if not in_code and '{code' in line:
+            in_code = True
+            continue
+
+        if in_code and '{code}' in line:
+            in_code = False
+            continue
+
+        if in_code:
+            continue
+
         line = line.rstrip()
         line = line.replace('<p>', '').replace('</p>', '')
         print('>>>' + line + '<<<')
@@ -122,6 +253,7 @@ def render_jira_markup(raw):
             continue
 
         lines[idl] = '<p>' + line + '</p>'
+    """
 
     return '\n'.join(lines)
 

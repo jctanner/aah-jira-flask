@@ -15,16 +15,15 @@
                 </div>
             <!--</div>-->
 
-            <h2>{{ issue_data['summary'] }}</h2>
-            <hr>
+            <h1 class="issue-summary">{{ issue_data['summary'] }}</h1>
 
             <!--<div style="white-space: pre-wrap;">-->
 
-            <div id="description-rendered" display="block" style="background-color: lightblue;">
+            <div id="description-rendered" display="block" class="issue-description">
 {{ issue_description | safe }}
             </div>
 
-            <div id="description-raw" display="none" style="background-color: pink;">
+            <div id="description-raw" display="none" class="issue-description">
 <pre>
 {{ issue_description_raw }}
 </pre>

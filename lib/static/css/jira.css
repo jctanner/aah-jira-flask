@@ -24,6 +24,7 @@ body {
     font-family: Arial, sans-serif;
     background-color: #f5f5f5;
     padding: 20px;
+    font-size: 18px;
 }
 
 .container {
@@ -44,6 +45,15 @@ body {
 }
 
 .issue-header h1 {
+    font-size: 24px;
+}
+
+.issue-summary {
+    background-color: ;
+    color: #151515;
+    padding: 10px;
+    border-radius: 5px 5px 0 0;
+    margin-bottom: 20px;
     font-size: 24px;
 }
 
@@ -76,4 +86,17 @@ body {
 
 .issue-comments .comment:last-child {
     margin-bottom: 0;
+}
+
+.highlight {
+    background-color: lightgray;
+    border: 1px solid darkgray;
+    padding: 0px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    max-width: 90%;
+}
+
+h3 {
+    margin: 30px 0 15px;
 }
