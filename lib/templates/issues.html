@@ -63,6 +63,10 @@
                         if (columns[j]  === 'fields.created' || columns[j] === 'fields.updated') {
                             val = dateSplit(val);
                         };
+                        if (columns[j] === 'labels') {
+                            //console.log('labels', val);
+                            val = val.join("\n");
+                        }
                         newHTML += `<td>${val}</td>`;
                     };
                     newHTML += '</tr>';
@@ -74,7 +78,8 @@
                     "pageLength": 50,
                     "stripeClasses": [ 'stripe1', 'stripe2' ],
                     "columnDefs": [
-                        { width: '50%', targets: -1 }
+                        { width: '50%', targets: -1 },
+                        { width: "10%", targets: "labels" }
                     ]
                 });
             }
