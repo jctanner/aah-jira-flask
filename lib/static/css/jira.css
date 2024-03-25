@@ -11,10 +11,9 @@ article, aside, canvas, details, embed,
 figure, figcaption, footer, header, hgroup, 
 menu, nav, output, ruby, section, summary,
 time, mark, audio, video {
-    margin: 0;
-    padding: 0;
+    margin: 10;
+    padding: 20;
     border: 0;
-    font-size: 100%;
     font: inherit;
     vertical-align: baseline;
 }
@@ -94,7 +93,14 @@ body {
     padding: 0px;
     margin-top: 10px;
     margin-bottom: 10px;
-    max-width: 90%;
+    max-width: 100%;
+}
+
+pre {
+    overflow-x: hidden;
+    overflow: hidden;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 h3 {

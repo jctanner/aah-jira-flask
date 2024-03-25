@@ -116,7 +116,8 @@ def render_code(raw):
             begin = '{code:' + lang + '}'
         end = '{code}'
 
-        highlighted = highlight(code, lexer, HtmlFormatter())
+        # highlighted = highlight(code, lexer, HtmlFormatter())
+        highlighted = '<pre class="highlight">' + code + '</pre>'
         raw = raw.replace(begin + code + end, highlighted, 1)
 
     #import epdb; epdb.st()
@@ -173,8 +174,8 @@ def render_jira_markup(raw, code=True):
     print('------------------------------------ RAW END')
 
 
-    raw = replace_links(raw)
-    raw = replace_emphasis(raw)
+    #raw = replace_links(raw)
+    #raw = replace_emphasis(raw)
     raw = replace_insert(raw)
     raw = replace_strikethrough(raw)
     raw = replace_bold(raw)
