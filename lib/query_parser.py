@@ -120,7 +120,7 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
         clauses = re.split(r"\s(?=(?:[^']*'[^']*')*[^']*$)", query1)
         result = []
         for i, term in enumerate(clauses):
-            if i > 0 and term not in ['LIKE', 'AND', 'OR'] and not clauses[i - 1].endswith(('LIKE', 'AND', 'OR')):
+            if i > 0 and term not in ['NOT', 'LIKE', 'AND', 'OR'] and not clauses[i - 1].endswith(('NOT', 'LIKE', 'AND', 'OR')):
                 result.append('AND')
             result.append(term)
         print(f'RESULT: {result}')
