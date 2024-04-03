@@ -97,19 +97,37 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
             if x.lstrip('(').rstrip(')') == substring:
                 query_parts[idx] = clause
 
-    query = ' '.join(query_parts)
+    query1 = ' '.join(query_parts)
+    query1 = query1.replace('   ', ' ')
+    query1 = query1.replace('  ', ' ')
 
     # spaces between clauses should be AND by default unless an or/OR
-    clauses = re.split(r"\s(?=(?:[^']*'[^']*')*[^']*$)", query)
-    result = []
-    for i, term in enumerate(clauses):
-        if i > 0 and term not in ['LIKE', 'AND', 'OR'] and not clauses[i - 1].endswith(('LIKE', 'AND', 'OR')):
-            result.append('AND')
-        result.append(term)
-    print(f'RESULT: {result}')
-    query = ' '.join(result)
+    if 'EXISTS' in query1:
+        ix = query1.index('EXISTS')
+        part1 = query1[:ix]
+        part2 = query1[ix:]
 
-    WHERE = 'WHERE ' + query
+        clauses = re.split(r"\s(?=(?:[^']*'[^']*')*[^']*$)", part1)
+        result = []
+        for i, term in enumerate(clauses):
+            if i > 0 and term not in ['LIKE', 'AND', 'OR'] and not clauses[i - 1].endswith(('LIKE', 'AND', 'OR')):
+                result.append('AND')
+            result.append(term)
+
+        query2 = ' '.join(result) + part2
+
+    else:
+        clauses = re.split(r"\s(?=(?:[^']*'[^']*')*[^']*$)", query1)
+        result = []
+        for i, term in enumerate(clauses):
+            if i > 0 and term not in ['LIKE', 'AND', 'OR'] and not clauses[i - 1].endswith(('LIKE', 'AND', 'OR')):
+                result.append('AND')
+            result.append(term)
+        print(f'RESULT: {result}')
+        query2 = ' '.join(result)
+
+    WHERE = 'WHERE ' + query2
+    #import epdb; epdb.st()
 
     sql = f"SELECT {','.join(cols)} FROM jira_issues {WHERE}"
 

@@ -149,12 +149,33 @@
 
 			function onLoad() {
 
+                console.log('tickets onLoad function ...');
+
                 const searchBox = document.getElementById('search-box');
                 searchBox.value = '';
 
                 queryString = window.location.search;
                 const urlParams = new URLSearchParams(queryString);
                 let projects = urlParams.getAll("project");
+                if (projects === null || projects === undefined || projects.length === 0) {
+                    projects = ["AAH"];
+
+                    let projectParam = 'project=' + projects.join(',');
+                    let currentUrl = window.location.href;
+                    let newUrl;
+
+                    if (currentUrl.includes('?')) {
+                        // URL already has query parameters, append with &
+                        newUrl = currentUrl + '&' + projectParam;
+                    } else {
+                        // URL has no query parameters, append with ?
+                        newUrl = currentUrl + '?' + projectParam;
+                    }
+
+                    window.history.pushState({ path: newUrl }, '', newUrl);
+
+                }
+                console.log(projects);
 
                 const apiParams = new URLSearchParams();
                 projects.forEach(value => {
