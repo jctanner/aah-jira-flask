@@ -106,7 +106,10 @@ class GithubRequesterOverride(Requester):
             url = self.base_url + args[1]
         method = args[0].lower()
         func = getattr(requests, method)
-        rr = func(url, headers=headers)
+        try:
+            rr = func(url, headers=headers)
+        except Exception as e:
+            import epdb; epdb.st()
         return dict(rr.headers), rr.json()
 
 
@@ -162,11 +165,15 @@ class GithubClient():
             next_url = rr.links['next']['url']
 
     def get_repository(self, path):
-        return self.g.get_repo(path)
+        repo = self.g.get_repo(path)
+        if repo is None:
+            import epdb; epdb.st()
+        return repo
 
         for x in self.g.search_repositories(path):
             if x.full_name == path:
                 return x
+
 
     def find_user_events(self, repos, login, start=None, end=None):
         matches = set()
@@ -263,7 +270,7 @@ def summarize_events(events):
     sorted_keys = list(imap.keys())
     sorted_keys = sorted(sorted_keys, key=lambda x: imap[x]['start'])
 
-    for skey in sorted_keys:
+    for idk,skey in enumerate(sorted_keys):
         # repo/number [start] -> [end] 
         #   title ...
         #   jiras ...
@@ -276,12 +283,16 @@ def summarize_events(events):
         finish = ival["stop"].isoformat().split('T')[0]
 
         print('-' * 100)
-        print(f'{issue.html_url} {start} -> {finish}')
+        print(f'{idk+1}. {issue.html_url} {start} -> {finish}')
         print(f'\t{issue.title}')
         if e0.jiras:
             print(f'\tjiras ...')
             for jira in e0.jiras:
                 print(f'\t\t{jira}')
+
+        print(f'\tevents ...')
+        for event in ival['events']:
+            print(f'\t\t{event.ts} {event.event_name}')
 
 
 def main():
@@ -297,16 +308,17 @@ def main():
 
     # define the projects
     repos = [
+        'dynaconf/dynaconf',
         'pulp/pulpcore',
         'pulp/pulp_ansible',
         'pulp/pulp_container',
         'pulp/oci_env',
         'ansible/ansible-hub-ui',
         'ansible/galaxy_ng',
-        #'ansible/galaxy-deploy',
+        'ansible/galaxy-deploy',
         'ansible/galaxy-importer',
         'ansible/galaxykit',
-        #'ansible/aap-gateway',
+        'ansible/aap-gateway',
         'ansible/django-ansible-base',
         'encode/django-rest-framework',
     ]
