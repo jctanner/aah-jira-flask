@@ -11,6 +11,9 @@ with open('lib/static/json/fields.json', 'r') as f:
 
 def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
 
+    if 'jql_scheme=2' in query:
+        return query_parse_v2(query, field_map=field_map, cols=cols, debug=debug)
+
     _query = query[:]
 
     if cols is None:
@@ -130,6 +133,89 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
     #import epdb; epdb.st()
 
     sql = f"SELECT {','.join(cols)} FROM jira_issues {WHERE}"
+
+    if debug or os.environ.get('QUERY_DEBUG'):
+        formatted = sqlparse.format(sql, reindent=True, keyword_case='lower')
+        print(formatted)
+
+    return sql
+
+
+def query_parse_v2(query, field_map=FIELD_MAP, cols=None, debug=False):
+    # try to preserve parens ...
+    query = query.replace('jql_scheme=2', '')
+
+    if cols is None:
+        cols = [
+            'key',
+            'created',
+            'updated',
+            'created_by',
+            'assigned_to',
+            'type',
+            'priority',
+            'state',
+            "data->'fields'->>'labels' as labels",
+            "data->'fields'->>'customfield_12313440' as sfdc_count",
+            'summary'
+        ]
+
+    colmap = {
+        'status': 'state',
+        'state': 'state',
+        'project': 'project',
+        'assignee': 'assigned_to',
+        'reporter': 'created_by',
+        'status': 'state',
+        'label': "data->'fields'->>'labels'",
+        'labels': "data->'fields'->>'labels'",
+        'fix_versions': "data->'fields'->>'fixVersions'",
+        'parent_link': "data->'fields'->>'customfield_12313140'",
+        'comments': "data->'fields'->'comment'->>'comments'",
+        'sfdc_count': "(data->'fields'->>'customfield_12313440')::numeric",
+    }
+
+    operator_map = {
+        #'!=': ' IS NOT ',
+        '~': ' IS LIKE ',
+        '!~': ' IS NOT LIKE ',
+    }
+
+    for keyword, colname in colmap.items():
+        if keyword not in query:
+            continue
+
+        pattern = r'(\w+)\s*([=!<>~]+)\s*([\w@.-]+)'
+        matches = re.findall(pattern, query)
+        for match in matches:
+            if match[0] != keyword:
+                continue
+            to_replace = ''.join(match)
+
+            key = match[0]
+            operator = match[1]
+            val = match[2]
+
+            if operator == '=' and key == 'fix_versions':
+
+                clause = (
+                    'EXISTS ('
+                    '   SELECT 1'
+                    "   FROM jsonb_array_elements(data->'fields'->'fixVersions') AS version(version_element)"
+                    f"   WHERE version_element->>'name' = '{val}'"
+                    ')'
+                )
+
+                # replace it ...
+                query = query.replace(to_replace, clause, 1)
+
+            else:
+                roperator = operator_map.get(operator, operator)
+                replacer = key + roperator + "'" + val + "'"
+                query = query.replace(to_replace, replacer)
+
+
+    sql = f"SELECT {','.join(cols)} FROM jira_issues WHERE {query}"
 
     if debug or os.environ.get('QUERY_DEBUG'):
         formatted = sqlparse.format(sql, reindent=True, keyword_case='lower')

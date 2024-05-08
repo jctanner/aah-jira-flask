@@ -154,6 +154,45 @@ def projects():
     return jsonify(projects)
 
 
+@app.route('/api/tickets/<issue_key>')
+def api_ticket(issue_key):
+
+    rows = []
+    with conn.cursor() as cur:
+        cols = ','.join(ISSUE_COLUMN_NAMES)
+        #sql = f'SELECT {cols} FROM jira_issues WHERE key=%s'
+        sql = f'SELECT * FROM jira_issues WHERE key=%s'
+        cur.execute(sql, (issue_key,))
+        results = cur.fetchall()
+        colnames = [x[0] for x in cur.description]
+        for row in results:
+            ds = {}
+            #for idx,x in enumerate(ISSUE_COLUMN_NAMES):
+            for idx,x in enumerate(colnames):
+                ds[x] = row[idx]
+            rows.append(ds)
+
+    with open('lib/static/json/fields.json', 'r') as f:
+        field_map = json.loads(f.read())
+    field_map = dict((x['id'], x) for x in field_map)
+
+    issue_data = {}
+    if rows:
+        issue_data = rows[0]
+        issue_description_raw = rows[0]['description']
+        issue_description = render_jira_markup(rows[0]['description'])
+    else:
+        issue_data = {
+            'data': {
+                'fields': {}
+            }
+        }
+        issue_description = ''
+        issue_description_raw = ''
+
+    return jsonify(issue_data)
+
+
 @app.route('/api/tickets', methods=['GET', 'POST'])
 @app.route('/api/tickets/', methods=['GET', 'POST'])
 def tickets():
@@ -233,6 +272,46 @@ def tickets():
             filtered.append(ds)
 
     return jsonify(filtered)
+
+
+@app.route('/api/tickets_parents')
+@app.route('/api/ticket_parents/')
+def api_tickets_parents():
+
+    fmap = {
+        'epic_link': 'customfield_12311140',
+        'feature_link': 'customfield_12318341',
+        'parent_link': 'customfield_12313140',
+    }
+
+    sql = "SELECT key,type"
+    for k,v in fmap.items():
+        sql += ',' + f"data->'fields'->>'{v}' {k}"
+    sql += " from jira_issues"
+    if request.args.get('project'):
+        project = request.args.get('project')
+        sql += f" WHERE project='{project}'"
+
+    print(f'SQL: {sql}')
+    rows = []
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        results = cur.fetchall()
+        cols = [desc[0] for desc in cur.description]
+
+        for row in results:
+            ds = {}
+            for idc,colname in enumerate(cols):
+                ds[colname] = row[idc]
+
+                # is it json?
+                if colname in fmap and row[idc] is not None and 'key' in row[idc]:
+                    colds = json.loads(row[idc])
+                    ds[colname] = colds['key']
+
+            rows.append(ds)
+
+    return jsonify(rows)
 
 
 @app.route('/api/acceptance_criteria')
