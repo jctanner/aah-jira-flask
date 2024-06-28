@@ -141,6 +141,11 @@ def ui_components():
     return render_template('components.html')
 
 
+@app.route('/ui/fix_versions')
+def ui_fix_versions():
+    return render_template('fix_versions.html')
+
+
 @app.route('/ui/timeline')
 def ui_timeline():
     return render_template('timeline.html')
@@ -475,6 +480,56 @@ def api_components():
         sql += ' AND '.join(statements)
 
     sql += " GROUP BY component"
+    sql += " ORDER BY count DESC"
+
+    print(f'SQL: {sql}')
+    rows = []
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        results = cur.fetchall()
+        cols = [desc[0] for desc in cur.description]
+
+        for row in results:
+            ds = {}
+            for idc,colname in enumerate(cols):
+                ds[colname] = row[idc]
+            rows.append(ds)
+
+    return jsonify(rows)
+
+
+@app.route('/api/fix_versions')
+@app.route('/api/fix_versions/')
+def api_fix_versions():
+
+    '''
+    sql = "SELECT project,key,summary,state,data->'fields'->>'labels' acceptance_criteria"
+    sql += " from jira_issues"
+    sql += " WHERE data->'fields'->>'customfield_12315940' IS NOT NULL"
+    '''
+    clauses = {
+        'state': [('!=', 'Closed')]
+    }
+
+    sql = "select fv->'name' as fix_version,COUNT(fv) count from jira_issues,jsonb_array_elements(data->'fields'->'fixVersions') AS fv"
+
+    if request.args.get('project'):
+        clauses['project'] = [('=', request.args.get('project'))]
+    if request.args.get('state'):
+        clauses['state'] = [('=', request.args.get('state'))]
+    if request.args.get('closed'):
+        clauses.pop('state')
+
+    if clauses:
+        sql += ' WHERE '
+        statements = []
+        for k,v in clauses.items():
+            for _v in v:
+                statement = f"{k}{_v[0]}'{_v[1]}'"
+                statements.append(statement)
+        sql += ' AND '.join(statements)
+
+    sql += " GROUP BY fix_version"
     sql += " ORDER BY count DESC"
 
     print(f'SQL: {sql}')

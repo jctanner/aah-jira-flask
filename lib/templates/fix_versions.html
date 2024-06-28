@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+
+		<div id="fv-container" style="width:100%">
+			<table id='fv-table' style="width:100%">
+				<thead>
+					<th>fix_version</th>
+					<th>issue count</th>
+					<th>issues</th>
+				</thead>
+				<tbody id="fv-table-body">
+				<tbody>	
+			</table>
+		</div>
+
+		<script>
+
+			function onLoad() {
+
+                const url = "/api/fix_versions/"
+
+                queryString = window.location.search;
+                const urlParams = new URLSearchParams(queryString);
+                let projects = urlParams.getAll("project");
+
+                const apiParams = new URLSearchParams();
+                projects.forEach(value => {
+                    apiParams.append("project", value);
+                });
+                if (urlParams.get("state") !== undefined && urlParams.get("state") !== null) {
+                    apiParams.append("state", urlParams.get("state"))
+                }
+                const apiString = apiParams.toString();
+                let apiUrl = `${url}/?${apiString}`;
+                //if (showClosed) {
+                //    apiUrl += "?closed=1"
+                //}
+
+				fetch(apiUrl, {
+					method: "GET",
+					headers: {'Content-Type': 'application/json'}, 
+				}).then(res => res.json()).then(res => {
+					var newHTML = '';
+					for (let i = 0; i < res.length; i++) {
+						//console.log(res[i]);
+						newHTML += '<tr>';
+						newHTML += `<td>${res[i].fix_version}</td>`;
+						newHTML += `<td>${res[i].count}</td>`;
+                        const encodedFV = encodeURIComponent(res[i].fix_version);
+						newHTML += `<td><a href="/ui/issues/?fix_versions=${encodedFV}">issues</a></td>`;
+						newHTML += '</tr>';
+					}
+
+					document.getElementById('fv-table-body').innerHTML = newHTML;
+					$('#fv-table').DataTable({
+                        "order": [[1, 'desc']],
+                        "pageLength": 50,
+                        "stripeClasses": [ 'stripe1', 'stripe2' ]
+                    });
+
+
+				});
+			};
+
+		</script>
+
+{% endblock %}
