@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
 
-		<div id="labels-container" style="width:100%">
-			<table id='labels-table' style="width:100%">
+		<div id="componentss-container" style="width:100%">
+			<table id='componentss-table' style="width:100%">
 				<thead>
-					<th>label</th>
+					<th>component</th>
 					<th>issue count</th>
 					<th>issues</th>
 				</thead>
-				<tbody id="labels-table-body">
+				<tbody id="componentss-table-body">
 				<tbody>	
 			</table>
 		</div>
@@ -17,7 +17,7 @@
 
 			function onLoad() {
 
-                const url = "/api/labels/"
+                const url = "/api/components/"
 
                 queryString = window.location.search;
                 const urlParams = new URLSearchParams(queryString);
@@ -32,9 +32,6 @@
                 }
                 const apiString = apiParams.toString();
                 let apiUrl = `${url}/?${apiString}`;
-                //if (showClosed) {
-                //    apiUrl += "?closed=1"
-                //}
 
 				fetch(apiUrl, {
 					method: "GET",
@@ -44,15 +41,15 @@
 					for (let i = 0; i < res.length; i++) {
 						//console.log(res[i]);
 						newHTML += '<tr>';
-						newHTML += `<td>${res[i].label}</td>`;
+						newHTML += `<td>${res[i].component}</td>`;
 						newHTML += `<td>${res[i].count}</td>`;
-                        const encodedLabel = encodeURIComponent(res[i].label);
-						newHTML += `<td><a href="/ui/issues/?label=${encodedLabel}">issues</a></td>`;
+                        const encodedComponent = encodeURIComponent(res[i].component);
+						newHTML += `<td><a href="/ui/issues/?component=${encodedComponent}">issues</a></td>`;
 						newHTML += '</tr>';
 					}
 
-					document.getElementById('labels-table-body').innerHTML = newHTML;
-					$('#labels-table').DataTable({
+					document.getElementById('componentss-table-body').innerHTML = newHTML;
+					$('#componentss-table').DataTable({
                         "order": [[1, 'desc']],
                         "pageLength": 50,
                         "stripeClasses": [ 'stripe1', 'stripe2' ]

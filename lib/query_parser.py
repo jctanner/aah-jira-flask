@@ -27,6 +27,7 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
             'priority',
             'state',
             "data->'fields'->>'labels' as labels",
+            "data->'fields'->>'components' as components",
             "data->'fields'->>'customfield_12313440' as sfdc_count",
             'summary'
         ]
@@ -53,14 +54,15 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
         elif col == 'status':
             col = 'state'
         elif col == 'label':
-            col = 'labels'
             col = "data->'fields'->>'labels'"
         elif col == 'fix_versions':
             col = "data->'fields'->>'fixVersions'"
         elif col == 'parent_link':
             col = "data->'fields'->>'customfield_12313140'"
-        elif col == 'labels':
-            col = "data->'fields'->>'labels'"
+        #elif col == 'labels':
+        #    col = "data->'fields'->>'labels'"
+        elif col == 'components':
+            col = "data->'fields'->>'components'"
         elif col == 'comments':
             col = "data->'fields'->'comment'->>'comments'"
         elif col == 'sfdc_count':
@@ -79,6 +81,16 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
                 '   SELECT 1'
                 "   FROM jsonb_array_elements(data->'fields'->'fixVersions') AS version(version_element)"
                 f"   WHERE version_element->>'name' = '{v}'"
+                ')'
+            )
+
+        elif operator == '=' and _col == 'components':
+
+            clause = (
+                'EXISTS ('
+                '   SELECT 1'
+                "   FROM jsonb_array_elements(data->'fields'->'components') AS component(component_element)"
+                f"   WHERE component_element->>'name' = '{v}'"
                 ')'
             )
 
@@ -103,6 +115,7 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
     query1 = ' '.join(query_parts)
     query1 = query1.replace('   ', ' ')
     query1 = query1.replace('  ', ' ')
+    print(f'QUERY1: {query1}')
 
     # spaces between clauses should be AND by default unless an or/OR
     if 'EXISTS' in query1:
@@ -155,6 +168,7 @@ def query_parse_v2(query, field_map=FIELD_MAP, cols=None, debug=False):
             'type',
             'priority',
             'state',
+            "data->'fields'->>'components' as components",
             "data->'fields'->>'labels' as labels",
             "data->'fields'->>'customfield_12313440' as sfdc_count",
             'summary'

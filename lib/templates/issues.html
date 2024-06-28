@@ -31,6 +31,7 @@
 					<th>priority</th>
 					<th>status</th>
 					<th>labels</th>
+					<th>components</th>
 					<th>fix_versions</th>
 					<th>sfdc_count</th>
 					<th>summary</th>
@@ -63,7 +64,7 @@
                         if (columns[j]  === 'fields.created' || columns[j] === 'fields.updated') {
                             val = dateSplit(val);
                         };
-                        if (columns[j] === 'labels') {
+                        if (columns[j] === 'labels' || columns[j] === 'components') {
                             //console.log('labels', val);
                             val = val.join("\n");
                         }
@@ -142,6 +143,7 @@
                 "priority",
                 "state",
                 "labels",
+                "components",
                 "fix_versions",
                 "sfdc_count",
                 "summary",
@@ -158,6 +160,8 @@
                 const urlParams = new URLSearchParams(queryString);
                 let projects = urlParams.getAll("project");
                 if (projects === null || projects === undefined || projects.length === 0) {
+
+                    /*
                     projects = ["AAH"];
 
                     let projectParam = 'project=' + projects.join(',');
@@ -173,6 +177,7 @@
                     }
 
                     window.history.pushState({ path: newUrl }, '', newUrl);
+                    */
 
                 }
                 console.log(projects);
@@ -181,6 +186,9 @@
                 projects.forEach(value => {
                     apiParams.append("project", value);
                 });
+                if (urlParams.get("component") !== undefined && urlParams.get("component") !== "" && urlParams.get("component") !== null) {
+                    apiParams.append("component", urlParams.get("component"))
+                }
                 const apiString = apiParams.toString();
                 const apiUrl = `/api/tickets/?${apiString}`;
 

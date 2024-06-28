@@ -36,6 +36,7 @@ def _make_nodes(issue_map, debug=True):
             'child_type': idata['type'],
             'child_status': idata['state'],
             'child_summary': idata['summary'],
+            'fix_versions': idata['fix_versions'],
         }
 
         # fill in parent if defined ...
@@ -76,7 +77,8 @@ def _get_issue_map(filter_key=None, filter_project=None, debug=True):
         'parent': "data->'fields'->'parent'->>'key'",
         'parent_link': "data->'fields'->'customfield_12313140'->>'key'",
         'feature': "data->'fields'->'customfield_12318341'->>'key'",
-        'epic': "data->'fields'->>'customfield_12311140'"
+        'epic': "data->'fields'->>'customfield_12311140'",
+        'fix_versions': "data->'fields'->>'fixVersions'",
     }
 
 
@@ -118,6 +120,7 @@ def _get_issue_map(filter_key=None, filter_project=None, debug=True):
             issue_map[ikey] = ds
             #if ikey == 'AAP-16435':
             #    import epdb; epdb.st()
+            issue_map[ikey]['fix_versions'] = [x['name'] for x in json.loads(ds['fix_versions'])]
 
     return issue_map
 
@@ -172,7 +175,8 @@ def make_tickets_tree(filter_key=None, filter_project=None, show_closed=True, ma
                 'type': node['child_type'],
                 'status': node['child_status'],
                 'summary': node['child_summary'],
-                'parent_key': node['parent']
+                'parent_key': node['parent'],
+                'fix_versions': node['fix_versions']
             }
 
     for ik,idata in issue_map.items():

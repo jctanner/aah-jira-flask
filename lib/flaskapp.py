@@ -136,6 +136,11 @@ def ui_labels():
     return render_template('labels.html')
 
 
+@app.route('/ui/components')
+def ui_components():
+    return render_template('components.html')
+
+
 @app.route('/ui/timeline')
 def ui_timeline():
     return render_template('timeline.html')
@@ -150,6 +155,8 @@ def projects():
         results = cur.fetchall()
         for row in results:
             projects.append(row[0])
+
+    projects = sorted(projects)
 
     return jsonify(projects)
 
@@ -207,6 +214,7 @@ def tickets():
         'priority',
         'state',
         "data->'fields'->>'labels' as labels",
+        "data->'fields'->>'components' as components",
         "data->'fields'->>'customfield_12313440' as sfdc_count",
         "data->'fields'->>'fixVersions' as fix_versions",
         'summary'
@@ -216,31 +224,53 @@ def tickets():
         query = request.json.get('query')
         print(f'SEARCH QUERY: {query}')
 
+        '''
         with open('lib/static/json/fields.json', 'r') as f:
             field_map = json.loads(f.read())
         field_map = dict((x['id'], x) for x in field_map)
+        '''
 
-        sql = query_parse(query, cols=cols, field_map=field_map, debug=True)
+        #sql = query_parse(query, cols=cols, field_map=field_map, debug=True)
+        sql = query_parse(query, cols=cols, debug=True)
 
     else:
 
+        '''
         projects = request.args.getlist("project")
         if projects:
             project = projects[0]
         else:
             project = 'AAH'
 
-        '''
-        cols = [
-            'key', 'created', 'updated', 'created_by',
-            'assigned_to', 'type', 'priority', 'state',
-            "data->'fields'->>'labels' as labels",
-            "data->'fields'->>'customfield_12313440' as sfdc_count",
-            'summary'
-        ]
-        '''
         WHERE = f"WHERE project = '{project}' AND state != 'Closed'"
         sql = f"SELECT {','.join(cols)} FROM jira_issues {WHERE}"
+        '''
+        #return jsonify(request.args)
+
+        kwargs = dict(request.args)
+
+        if 'project' not in kwargs and not kwargs:
+            kwargs['project'] = 'AAH'
+
+        qs = ""
+        for key, val in kwargs.items():
+            if key == 'component':
+                key = 'components'
+            if not qs:
+                qs += f"{key}={val}"
+            else:
+                qs += f" AND {key}={val}"
+        #if not qs and not "project" in request.args:
+        #    qs += " project=AAH"
+        if "state" not in kwargs and "status" not in kwargs:
+            if not qs:
+                qs += "status!=Closed"
+            else:
+                qs += " AND status!=Closed"
+
+        sql = query_parse(qs, cols=cols, debug=True)
+        #return jsonify({"qs": qs, "sql": sql})
+
 
     print(f'SQL: {sql}')
     filtered = []
@@ -263,10 +293,14 @@ def tickets():
                 elif colname == 'sfdc_count':
                     ds[colname] = int(row[idc].split('.')[0])
                 elif colname == 'labels':
-                    #ds[colname] = json.loads(row[idc])
                     labels = json.loads(row[idc])
                     labels = [x for x in labels if 'JIRALERT' not in x]
                     ds[colname] = labels
+                elif colname == 'components':
+                    components = json.loads(row[idc])
+                    components = [x['name'] for x in components]
+                    ds[colname] = components
+
                 elif colname == 'fix_versions':
                     ds[colname] = [x['name'] for x in json.loads(row[idc])]
             filtered.append(ds)
@@ -369,6 +403,8 @@ def api_labels():
         clauses['project'] = [('=', request.args.get('project'))]
     if request.args.get('state'):
         clauses['state'] = [('=', request.args.get('state'))]
+    if request.args.get('closed'):
+        clauses.pop('state')
 
     if clauses:
         sql += ' WHERE '
@@ -380,6 +416,65 @@ def api_labels():
         sql += ' AND '.join(statements)
 
     sql += " GROUP BY label"
+    sql += " ORDER BY count DESC"
+
+    print(f'SQL: {sql}')
+    rows = []
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        results = cur.fetchall()
+        cols = [desc[0] for desc in cur.description]
+
+        for row in results:
+            ds = {}
+            for idc,colname in enumerate(cols):
+                ds[colname] = row[idc]
+            rows.append(ds)
+
+    return jsonify(rows)
+
+
+@app.route('/api/components')
+@app.route('/api/components/')
+def api_components():
+
+    '''
+    sql = "SELECT project,key,summary,state,data->'fields'->>'labels' acceptance_criteria"
+    sql += " from jira_issues"
+    sql += " WHERE data->'fields'->>'customfield_12315940' IS NOT NULL"
+    '''
+    clauses = {
+        'state': [('!=', 'Closed')]
+    }
+
+    '''
+    SELECT components->>'name' AS component, COUNT(components->>'name') AS count
+    FROM jira_issues, LATERAL jsonb_array_elements(data->'fields'->'components') AS components
+    WHERE state = 'null'
+    GROUP BY component
+    ORDER BY count DESC;
+    '''
+    #sql = "select component,COUNT(component) count from jira_issues,jsonb_array_elements(data->'fields'->'components')->>'name' AS component"
+    sql = '''SELECT components->>'name' AS component, COUNT(components->>'name') AS count
+    FROM jira_issues, LATERAL jsonb_array_elements(data->'fields'->'components') AS components'''
+
+    if request.args.get('project'):
+        clauses['project'] = [('=', request.args.get('project'))]
+    if request.args.get('state'):
+        clauses['state'] = [('=', request.args.get('state'))]
+    if request.args.get('closed'):
+        clauses.pop('state')
+
+    if clauses:
+        sql += ' WHERE '
+        statements = []
+        for k,v in clauses.items():
+            for _v in v:
+                statement = f"{k}{_v[0]}'{_v[1]}'"
+                statements.append(statement)
+        sql += ' AND '.join(statements)
+
+    sql += " GROUP BY component"
     sql += " ORDER BY count DESC"
 
     print(f'SQL: {sql}')
