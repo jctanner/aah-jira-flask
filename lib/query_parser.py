@@ -36,8 +36,10 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
     matches = re.findall(pattern, query)
     query_parts = query.split()
 
+    print(f'# matches:{matches}')
     for match in matches:
         key, operator, value = match
+        print(f'# key:{key} operator:{operator} val:{value}')
 
         substring = ''.join(match)
         if substring not in query:

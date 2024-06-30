@@ -280,35 +280,40 @@ def tickets():
     print(f'SQL: {sql}')
     filtered = []
     with conn.cursor() as cur:
-        cur.execute(sql)
-        results = cur.fetchall()
 
-        print(f'DESCRIPTION: {cur.description}')
-        desc_cols = [x.name for x in cur.description]
-        print(f'DCOLS: {desc_cols}')
+        try:
+            cur.execute(sql)
+            results = cur.fetchall()
 
-        for row in results:
-            ds = {}
-            #for idc,colname in enumerate(cols):
-            for idc,colname in enumerate(desc_cols):
+            print(f'DESCRIPTION: {cur.description}')
+            desc_cols = [x.name for x in cur.description]
+            print(f'DCOLS: {desc_cols}')
 
-                ds[colname] = row[idc]
-                if colname in ['created', 'updated']:
-                    ds[colname] = row[idc].isoformat().split('.')[0]
-                elif colname == 'sfdc_count':
-                    ds[colname] = int(row[idc].split('.')[0])
-                elif colname == 'labels':
-                    labels = json.loads(row[idc])
-                    labels = [x for x in labels if 'JIRALERT' not in x]
-                    ds[colname] = labels
-                elif colname == 'components':
-                    components = json.loads(row[idc])
-                    components = [x['name'] for x in components]
-                    ds[colname] = components
+            for row in results:
+                ds = {}
+                #for idc,colname in enumerate(cols):
+                for idc,colname in enumerate(desc_cols):
 
-                elif colname == 'fix_versions':
-                    ds[colname] = [x['name'] for x in json.loads(row[idc])]
-            filtered.append(ds)
+                    ds[colname] = row[idc]
+                    if colname in ['created', 'updated']:
+                        ds[colname] = row[idc].isoformat().split('.')[0]
+                    elif colname == 'sfdc_count':
+                        ds[colname] = int(row[idc].split('.')[0])
+                    elif colname == 'labels':
+                        labels = json.loads(row[idc])
+                        labels = [x for x in labels if 'JIRALERT' not in x]
+                        ds[colname] = labels
+                    elif colname == 'components':
+                        components = json.loads(row[idc])
+                        components = [x['name'] for x in components]
+                        ds[colname] = components
+
+                    elif colname == 'fix_versions':
+                        ds[colname] = [x['name'] for x in json.loads(row[idc])]
+                filtered.append(ds)
+        except Exception as e:
+            print(e)
+            conn.rollback()
 
     return jsonify(filtered)
 
