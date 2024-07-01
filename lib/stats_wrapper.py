@@ -22,6 +22,9 @@ import time
 from datetime import timezone
 import jira
 
+from dataclasses import dataclass
+from collections import OrderedDict
+
 import requests
 
 import concurrent.futures
@@ -40,6 +43,10 @@ from utils import (
     history_to_dict
 )
 from query_parser import query_parse
+
+
+with open('lib/static/json/fields.json', 'r') as f:
+    FIELD_MAP = json.loads(f.read())
 
 
 def accumulate_enumerated_backlog_from_row(row):
@@ -254,7 +261,7 @@ class StatsWrapper:
         #return [events[0]]
         return events
 
-    def burndown(self, projects, frequency='monthly', start=None, end=None, jql=None):
+    def burndown(self, projects, frequency='monthly', start=None, end=None, jql=None, limit=None):
 
         assert frequency in ['weekly', 'monthly', 'daily']
         frequency = frequency[0].upper()
@@ -330,7 +337,7 @@ class StatsWrapper:
 
         return merged_df.to_json(date_format='iso', indent=2)
 
-    def churn(self, projects, frequency='monthly', fields=None, start=None, end=None, jql=None):
+    def churn(self, projects, frequency='monthly', fields=None, start=None, end=None, jql=None, limit=None):
 
         assert frequency in ['weekly', 'monthly']
         frequency = frequency[0].upper()
@@ -410,7 +417,7 @@ class StatsWrapper:
 
         return clean.to_json(date_format='iso', indent=2)
 
-    def stats_report(self, projects=None, frequency='monthly', fields=None, start=None, end=None, jql=None):
+    def stats_report(self, projects=None, frequency='monthly', fields=None, start=None, end=None, jql=None, limit=None):
         qs = query_parse(jql, {}, cols=['key', 'project', 'number', 'created', 'updated', 'type', 'state'])
 
         rows = []
@@ -467,6 +474,229 @@ class StatsWrapper:
         return res
 
 
+    def fix_versions_burndown(self, **kwargs):
+
+        # jira_issues
+        #   id,project,number,key,history,data,created,updated,closed
+        # jira_issue_events
+        #   id,project,number,key,created,data
+
+        @dataclass
+        class VersionEvent:
+            key: str
+            project: str
+            number: int
+            type: str
+            ts: str
+            field: str
+            version: str
+
+        fields = {}
+        for fm in FIELD_MAP:
+            if 'version' in fm.get('name', '').lower() or 'fix' in fm.get('name', '').lower():
+                fields[fm['id']] = fm['name']
+
+        field_normal_map = {
+            'Fix Version/s': 'fixverison',
+            'Fix Version': 'fixversion',
+            'fixVersions': 'fixversion',
+        }
+
+        #cols = ['project', 'number', 'key', 'created', 'updated', 'type', 'state', 'data', 'history']
+        cols = ['project', 'number', 'key', 'created', 'updated', 'type', 'state', 'history']
+        for fkey, fval in fields.items():
+            cols.append(f"data->'fields'->'{fkey}' as \"{fval}\"")
+
+        jql = ""
+        if kwargs.get('projects'):
+            if len(kwargs['projects']) > 1:
+                raise Exception("can't handle mutli-projects yet")
+            projects = kwargs['projects']
+            jql += f"project={projects[0]}"
+        qs = query_parse(jql, {}, cols=cols)
+        if kwargs.get('limit'):
+            qs += f" LIMIT {kwargs['limit']}"
+        print(qs)
+
+        print("run sql ...")
+        rows = []
+        with self.conn.cursor() as cur:
+            cur.execute(qs)
+            colnames = [x.name for x in cur.description]
+
+            counter = 0
+            for row in cur.fetchall():
+                counter += 1
+                ds = {}
+                for idx,x in enumerate(row):
+                    ds[colnames[idx]] = x
+                rows.append(ds)
+
+        # fix version was applied
+        # fix version was changed
+        # fix version was removed
+
+        vevents = []
+
+        print("iterating rows and making observations ...")
+        for issue in rows:
+
+            its = issue['updated'].isoformat().split('.')[0]
+
+            '''
+            for k,v in fields.items():
+                if k in issue['data']['fields'] and issue['data']['fields'][k]:
+                    field = field_normal_map.get(k, k)
+                    for item in issue['data']['fields'][k]:
+                        if isinstance(item, str):
+                            version = item
+                        else:
+                            version = item['name']
+                        vevents.append(VersionEvent(
+                            issue['key'], issue['project'], issue['number'], issue['type'], its, field, version
+                        ))
+            '''
+            for fkey, field_name in fields.items():
+                fname = field_normal_map.get(fkey, fkey)
+                field_val = issue[field_name]
+                if isinstance(field_val, dict):
+                    version = field_val['name']
+                    vevents.append(VersionEvent(
+                        issue['key'], issue['project'], issue['number'], issue['type'], its, fname, version
+                    ))
+
+                elif isinstance(field_val, list):
+                    if len(field_val) == 0:
+                        version = None
+                        vevents.append(VersionEvent(
+                            issue['key'], issue['project'], issue['number'], issue['type'], its, fname, version
+                        ))
+                    else:
+                        for fv_item in field_val:
+                            version = fv_item['name']
+                            vevents.append(VersionEvent(
+                                issue['key'], issue['project'], issue['number'], issue['type'], its, fname, version
+                            ))
+
+                else:
+                    version = field_val
+                    vevents.append(VersionEvent(
+                        issue['key'], issue['project'], issue['number'], issue['type'], its, fname, version
+                    ))
+
+            if not issue.get('history'):
+                continue
+            for hevent in issue['history']:
+                ts = hevent['created'].split('.')[0]
+                for event in hevent['items']:
+                    if 'fix' in event.get('field', '').lower():
+                        version = event['toString']
+
+                        field = field_normal_map.get(event['field'], event['field'])
+
+                        vevents.append(VersionEvent(
+                            issue['key'],
+                            issue['project'],
+                            issue['number'],
+                            issue['type'],
+                            ts,
+                            field,
+                            version
+                        ))
+                    else:
+                        if event.get('field') in fields or event.get('field') in list(fields.values()):
+                            import epdb; epdb.st()
+
+        print("filtering and sorting events ...")
+        vevents = [x for x in vevents if 'fix' in x.field.lower()]
+        vevents = sorted(vevents, key=lambda x: (x.project, x.number, x.ts))
+
+        print("make a list of versions and timestamps ...")
+        versions = set()
+        timestamps = set()
+        for vevent in vevents:
+            versions.add(vevent.version)
+            timestamps.add(vevent.ts)
+
+        print("build datastructures ...")
+        vkeys = dict((x,set()) for x in versions if x is not None)
+        bvkeys = list(vkeys.keys())
+        buckets = OrderedDict()
+        for ts in sorted(list(timestamps)):
+            buckets[ts] = copy.deepcopy(vkeys)
+
+        print("walking through events and filling out buckets ...")
+        btimestamps = sorted(list(buckets.keys()))
+        for vevent in vevents:
+
+            v = vevent.version
+            related_timestamps = [x for x in btimestamps if x >= vevent.ts]
+
+            if v == None:
+                #print(f'remove {vevent.key} from >= {ts} all versions')
+                for rts in related_timestamps:
+                    for bv in bvkeys:
+                        if vevent.key in buckets[rts][bv]:
+                            #print(f'remove {vevent.key} from >= {ts} all versions')
+                            buckets[rts][bv].remove(vevent.key)
+                            #pass
+            else:
+                #print(f'add {vevent.key} to >= {ts} to {vevent.version} and remove from all others')
+                for rts in related_timestamps:
+                    for bv in bvkeys:
+                        if bv == vevent.version:
+                            #print(f'add {vevent.key} to {rts} {bv}')
+                            buckets[rts][bv].add(vevent.key)
+                        elif vevent.key in buckets[rts][bv]:
+                            buckets[rts][bv].remove(vevent.key)
+
+        '''
+        trimmed = OrderedDict()
+        for k,v in buckets.items():
+            has_items = False
+            for k2,v2 in v.items():
+                if len(list(v2)) > 0:
+                    has_items = True
+                    break
+            if has_items:
+                trimmed[k] = v
+        '''
+
+        print("counting keys ...")
+        for ts,vmap in buckets.items():
+            for vkey, vtickets in vmap.items():
+                buckets[ts][vkey] = len(list(vtickets))
+
+        print("making records ...")
+        records = []
+        for date, versions in buckets.items():
+            for version, count in versions.items():
+                records.append({"date": date, "version": version, "count": count})
+
+        print("make dataframe ...")
+        df = pd.DataFrame(records)
+
+        print("convert dates ...")
+        df['date'] = pd.to_datetime(df['date'])
+
+        '''
+        #grouped_df = df.groupby([df['date'].dt.date, 'version']).sum().reset_index()
+        grouped_df = df.groupby([df['date'].dt.date, 'version'])['count'].sum().reset_index()
+        '''
+
+        print("pivoting ...")
+        pivot_df = df.pivot_table(
+            index=df['date'].dt.date, columns='version', values='count', aggfunc='sum'
+        ).reset_index()
+
+        #pivot_df.columns.name = None
+        #pivot_df.columns = [str(col) for col in pivot_df.columns]
+
+        print('DONE')
+        import epdb; epdb.st()
+
+
+
 
 def main():
 
@@ -477,7 +707,8 @@ def main():
     parser.add_argument('--start', help='start date YYY-MM-DD')
     parser.add_argument('--end', help='end date YYY-MM-DD')
     parser.add_argument('--jql', help='issue selection JQL')
-    parser.add_argument('action', choices=['burndown', 'churn', 'stats_report'])
+    parser.add_argument('--limit', type=int, help='reduce the total processed')
+    parser.add_argument('action', choices=['burndown', 'churn', 'stats_report', 'fix_versions_burndown'])
 
     args = parser.parse_args()
     kwargs= {
@@ -487,6 +718,7 @@ def main():
         'start': args.start,
         'end': args.end,
         'jql': args.jql,
+        'limit': args.limit,
     }
     sw = StatsWrapper()
     func = getattr(sw, args.action)

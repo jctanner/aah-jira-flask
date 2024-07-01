@@ -144,8 +144,10 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
         print(f'RESULT: {result}')
         query2 = ' '.join(result)
 
-    WHERE = 'WHERE ' + query2
-    #import epdb; epdb.st()
+    if query2:
+        WHERE = 'WHERE ' + query2
+    else:
+        WHERE = ''
 
     sql = f"SELECT {','.join(cols)} FROM jira_issues {WHERE}"
 
