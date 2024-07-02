@@ -1,6 +1,10 @@
 #!/bin/bash
 
-docker cp $1 jira_database:/tmp/dumpfile.dump
-docker exec -t jira_database bash -c "PGPASSWORD='jira' pg_restore -U postgres -d jira -c /tmp/jira_db_dump.dump"
+set -e
+set -x
+
+CONTAINER="aah-jira-flask-db-1"
+docker cp $1 ${CONTAINER}:/tmp/dumpfile.dump
+docker exec -t ${CONTAINER} bash -c "PGPASSWORD='jira' pg_restore -U jira -d jira -c /tmp/dumpfile.dump"
 
 

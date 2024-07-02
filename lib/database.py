@@ -9,6 +9,7 @@ import json
 import docker
 import os
 import psycopg
+import time
 
 from logzero import logger
 
@@ -173,6 +174,24 @@ class JiraDatabaseWrapper:
                 pass
 
     def get_ip(self):
+
+        if os.environ.get("POSTGRES_HOST"):
+            self.NAME = os.environ["POSTGRES_HOST"]
+            self.IP = os.environ["POSTGRES_HOST"]
+            self.USER = os.environ.get("POSTGRES_USER", 'jira')
+            self.PASS = os.environ.get("POSGRES_PASSWROD", 'jira')
+            self.DB = os.environ.get("POSTGRES_DB", 'jira')
+
+            # wait for it to come up ...
+            for _ in range(0, 20):
+                try:
+                    self.get_connection()
+                except Exception as e:
+                    logger.warning("waiting 5s for connection")
+                    time.sleep(5)
+
+            return self.IP
+
         client = docker.APIClient()
         for container in client.containers(all=True):
             name = container['Names'][0].lstrip('/')
@@ -180,10 +199,13 @@ class JiraDatabaseWrapper:
                 self.IP = container['NetworkSettings']['Networks']['bridge']['IPAddress']
                 logger.info(f'container IP {self.IP}')
                 break
+
         return self.IP
 
     def get_connection(self):
         connstring = f'host={self.IP} dbname={self.DB} user={self.USER} password={self.PASS}'
+        print(connstring)
+        #raise("HERE!")
         return psycopg.connect(connstring)
 
     def check_table_and_create(self, tablename):

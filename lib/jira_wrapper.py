@@ -79,7 +79,8 @@ class JiraWrapper:
         )
 
         # validate auth ...
-        self.jira_client.myself()
+        if not os.environ.get("SKIP_JIRA_CONNECTION"):
+            self.jira_client.myself()
 
     '''
     def load_issues_and_events_from_disk(self):

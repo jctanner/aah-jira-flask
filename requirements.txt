@@ -24,3 +24,6 @@ numpy
 sqlparse
 Pygments
 PyGithub
+
+psycopg
+matplotlib

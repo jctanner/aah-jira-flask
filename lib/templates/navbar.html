@@ -45,6 +45,10 @@
           <a class="nav-link" href="/ui/fix_versions">fix_versions</a>
         </li>
 
+       <li class="nav-item {% if request.path.startswith('/ui/fix_version_history') %}active{% endif %}">
+          <a class="nav-link" href="/ui/fix_version_history">fix version history</a>
+        </li>
+
         <li class="nav-item {% if request.path.startswith('/ui/acceptance_criteria') %}active{% endif %}">
           <a class="nav-link" href="/ui/acceptance_criteria">acceptance criteria</a>
         </li>

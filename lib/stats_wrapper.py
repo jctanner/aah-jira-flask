@@ -21,9 +21,11 @@ import pytz
 import time
 from datetime import timezone
 import jira
+import re
 
 from dataclasses import dataclass
 from collections import OrderedDict
+from collections import defaultdict
 
 import requests
 
@@ -67,34 +69,34 @@ class StatsWrapper:
         self.conn = self.jdbw.get_connection()
         atexit.register(self.conn.close)
 
-
     def _get_projects_issue_history(self, projects, jql=None):
 
         if jql:
             print(f'JQL: {jql}')
-            cols = ['number', 'created', 'updated', 'data', 'project', 'key', 'state']
+            cols = ['number', 'created', 'updated',
+                    'data', 'project', 'key', 'state']
             qs = query_parse(jql, cols=cols, debug=True)
         else:
             placeholders = []
             for project in projects:
                 placeholders.append('%s')
             where_clause = "project = " + " OR project = ".join(placeholders)
-            qs = f'SELECT project,number,state,created,updated,data FROM jira_issues WHERE {where_clause}'
+            qs = f'SELECT project,number,state,created,updated,data FROM jira_issues WHERE {
+                where_clause}'
 
         with self.conn.cursor() as cur:
             if jql:
                 cur.execute(qs,)
             else:
-                cur.execute(qs,(projects))
+                cur.execute(qs, (projects))
             colnames = [x[0] for x in cur.description]
             for row in cur.fetchall():
                 ds = {}
-                for idc,cname in enumerate(colnames):
+                for idc, cname in enumerate(colnames):
                     ds[cname] = row[idc]
                 yield ds
 
     def get_open_close_move_events(self, projects, jql=None):
-
         '''
           project   |       key       |                                                            data
         ------------+-----------------+-----------------------------------------------------------------------------------------------------------------------------
@@ -128,7 +130,7 @@ class StatsWrapper:
                 colnames = [x[0] for x in cur.description]
                 for row in cur.fetchall():
                     ds = {}
-                    for idc,colname in enumerate(colnames):
+                    for idc, colname in enumerate(colnames):
                         ds[colname] = row[idc]
 
                     # print(ds)
@@ -157,22 +159,26 @@ class StatsWrapper:
                 placeholders = []
                 for project in projects:
                     placeholders.append(f"'{project}'")
-                where_clause = "project = " + " OR project = ".join(placeholders)
+                where_clause = "project = " + \
+                    " OR project = ".join(placeholders)
 
             where_clause_1 = ''
             if projects:
                 placeholders = []
                 for project in projects:
                     placeholders.append('%s')
-                where_clause_1 = "project = " + " OR project = ".join(placeholders)
+                where_clause_1 = "project = " + \
+                    " OR project = ".join(placeholders)
 
             placeholders_2 = []
             if projects:
                 for project in projects:
-                    _qs = f"(data->>'toString' like '{project}-%' OR data->>'fromString' like '{project}-%')"
+                    _qs = f"(data->>'toString' like '{
+                        project}-%' OR data->>'fromString' like '{project}-%')"
                     placeholders_2.append(_qs)
 
-            qs = f'SELECT created,data,project,key FROM jira_issue_events WHERE (({where_clause})'
+            qs = f'SELECT created,data,project,key FROM jira_issue_events WHERE (({
+                where_clause})'
             qs += " AND (data->>'field' = 'Key' OR (data->>'field' = 'status' AND ( data->>'toString'='New' OR data->>'toString'='Closed' ))))"
             if placeholders_2:
                 qs += " OR "
@@ -193,12 +199,12 @@ class StatsWrapper:
             events = []
             with self.conn.cursor() as cur:
 
-                #cur.execute(qs,(projects))
+                # cur.execute(qs,(projects))
                 cur.execute(qs)
 
                 for row in cur.fetchall():
 
-                    #print(row)
+                    # print(row)
 
                     ev = copy.deepcopy(event)
 
@@ -230,7 +236,8 @@ class StatsWrapper:
                             ev['closed'] = 1
                             events.append(ev)
                         else:
-                            import epdb; epdb.st()
+                            import epdb
+                            epdb.st()
 
                     elif row[1]['field'] == 'Key':
 
@@ -250,18 +257,19 @@ class StatsWrapper:
                             ev['moved_in'] = 1
                             events.append(ev)
                         elif src_project not in projects:
-                            import epdb; epdb.st()
+                            import epdb
+                            epdb.st()
                         else:
                             ev['moved_out'] = 1
                             events.append(ev)
 
-        #import epdb; epdb.st()
+        # import epdb; epdb.st()
         events = sorted(events, key=lambda x: x['timestamp'])
 
-        #return [events[0]]
+        # return [events[0]]
         return events
 
-    def burndown(self, projects, frequency='monthly', start=None, end=None, jql=None, limit=None):
+    def burndown(self, projects, frequency='monthly', start=None, end=None, jql=None, limit=None, **kwargs):
 
         assert frequency in ['weekly', 'monthly', 'daily']
         frequency = frequency[0].upper()
@@ -279,13 +287,14 @@ class StatsWrapper:
                 if issue['data']['fields']['resolutiondate']:
                     # 2022-10-07T18:27:40.793+0000
                     ts = issue['data']['fields']['resolutiondate']
-                    ts = datetime.datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%f%z")
+                    ts = datetime.datetime.strptime(
+                        ts, "%Y-%m-%dT%H:%M:%S.%f%z")
                 else:
                     ts = issue['updated']
                 ts = ts.astimezone(utc_timezone)
                 open_close_events.append([ts, -1])
 
-                #import epdb; epdb.st()
+                # import epdb; epdb.st()
                 oc_with_key.append([ts, -1, issue['data']['key']])
 
         df = pd.DataFrame(open_close_events, columns=['timestamp', 'backlog'])
@@ -293,7 +302,8 @@ class StatsWrapper:
         df.set_index('timestamp', inplace=True)
 
         # cumulative sum for backlog ...
-        backlog_grouped = df['backlog'].groupby(pd.Grouper(freq=frequency)).sum().cumsum()
+        backlog_grouped = df['backlog'].groupby(
+            pd.Grouper(freq=frequency)).sum().cumsum()
         backlog_grouped = backlog_grouped.to_frame()
         backlog_grouped.index = backlog_grouped.index.to_period(frequency)
 
@@ -313,17 +323,20 @@ class StatsWrapper:
         if True:
             ocm_events = self.get_open_close_move_events(projects, jql=jql)
             ocm_df = pd.DataFrame(
-                ocm_events, columns=['timestamp', 'opened', 'closed', 'moved_in', 'moved_out']
+                ocm_events, columns=['timestamp', 'opened',
+                                     'closed', 'moved_in', 'moved_out']
             )
             ocm_df['timestamp'] = pd.to_datetime(ocm_df['timestamp'])
             ocm_df = ocm_df.sort_values('timestamp')
             ocm_grouped = ocm_df.groupby(ocm_df['timestamp'].dt.to_period(frequency))\
                 .agg({'opened': 'sum', 'closed': 'sum', 'moved_in': 'sum', 'moved_out': 'sum'})
 
-            ocm_grouped['enumerated'] = ocm_grouped.apply(accumulate_enumerated_backlog_from_row, axis=1)
+            ocm_grouped['enumerated'] = ocm_grouped.apply(
+                accumulate_enumerated_backlog_from_row, axis=1)
             ocm_grouped['enumerated_backlog'] = ocm_grouped['enumerated'].cumsum()
 
-            merged_df = pd.merge(backlog_grouped, ocm_grouped, on='timestamp', how='outer')
+            merged_df = pd.merge(backlog_grouped, ocm_grouped,
+                                 on='timestamp', how='outer')
 
         if start or end:
             if start:
@@ -333,11 +346,11 @@ class StatsWrapper:
                 cutoff_period = pd.Period(end, freq=frequency[0])
                 merged_df = merged_df[merged_df.index <= cutoff_period]
 
-            #import epdb; epdb.st()
+            # import epdb; epdb.st()
 
         return merged_df.to_json(date_format='iso', indent=2)
 
-    def churn(self, projects, frequency='monthly', fields=None, start=None, end=None, jql=None, limit=None):
+    def churn(self, projects, frequency='monthly', fields=None, start=None, end=None, jql=None, limit=None, **kwargs):
 
         assert frequency in ['weekly', 'monthly']
         frequency = frequency[0].upper()
@@ -362,7 +375,8 @@ class StatsWrapper:
             for project in projects:
                 placeholders.append('%s')
             where_clause = "project = " + " OR project = ".join(placeholders)
-            qs = f"SELECT created,data->>'field' AS field_name FROM jira_issue_events WHERE {where_clause}"
+            qs = f"SELECT created,data->>'field' AS field_name FROM jira_issue_events WHERE {
+                where_clause}"
             with self.conn.cursor() as cur:
                 cur.execute(qs, (projects))
                 for row in cur.fetchall():
@@ -399,7 +413,7 @@ class StatsWrapper:
         print(f'raw column count: {count}')
 
         # reduce the column count ...
-        #if fields:
+        # if fields:
         #    return grouped.to_json(date_format='iso', indent=2)
 
         clean = grouped.loc[:, (grouped != 0).any(axis=0)]
@@ -417,8 +431,9 @@ class StatsWrapper:
 
         return clean.to_json(date_format='iso', indent=2)
 
-    def stats_report(self, projects=None, frequency='monthly', fields=None, start=None, end=None, jql=None, limit=None):
-        qs = query_parse(jql, {}, cols=['key', 'project', 'number', 'created', 'updated', 'type', 'state'])
+    def stats_report(self, projects=None, frequency='monthly', fields=None, start=None, end=None, jql=None, limit=None, **kwargs):
+        qs = query_parse(jql, {}, cols=[
+                         'key', 'project', 'number', 'created', 'updated', 'type', 'state'])
 
         rows = []
         with self.conn.cursor() as cur:
@@ -426,14 +441,14 @@ class StatsWrapper:
             colnames = [x.name for x in cur.description]
             for row in cur.fetchall():
                 ds = {}
-                for idx,x in enumerate(row):
+                for idx, x in enumerate(row):
                     ds[colnames[idx]] = x
                 # print(row)
                 rows.append(ds)
 
         closed_durations = []
 
-        for idr,row in enumerate(rows):
+        for idr, row in enumerate(rows):
             rows[idr]['timestamp'] = row['updated']
             delta = row['updated'] - row['created']
             rows[idr]['days_open'] = delta.days
@@ -444,8 +459,8 @@ class StatsWrapper:
         df.sort_index(inplace=True)
 
         window_size = 7
-        df['days_open_rolling_avg'] = df['days_open'].rolling(window=window_size).mean()
-
+        df['days_open_rolling_avg'] = df['days_open'].rolling(
+            window=window_size).mean()
 
         closed_df = df[df['state'] == 'Closed']
         closed_df['closed_month'] = closed_df['updated'].dt.to_period('M')
@@ -466,13 +481,12 @@ class StatsWrapper:
             'days_open_mean': float(df['days_open'].mean()),
             'days_open_max': float(df['days_open'].max()),
             'average_monthly_velocity': float(average_monthly_velocity),
-            #'dataframe_csv': df.to_csv(),
-            #'dataframe_json': df.to_json(date_format='iso'),
+            # 'dataframe_csv': df.to_csv(),
+            # 'dataframe_json': df.to_json(date_format='iso'),
         }
 
-        #return json.dumps(res)
+        # return json.dumps(res)
         return res
-
 
     def fix_versions_burndown(self, **kwargs):
 
@@ -502,17 +516,22 @@ class StatsWrapper:
             'fixVersions': 'fixversion',
         }
 
-        #cols = ['project', 'number', 'key', 'created', 'updated', 'type', 'state', 'data', 'history']
-        cols = ['project', 'number', 'key', 'created', 'updated', 'type', 'state', 'history']
+        # cols = ['project', 'number', 'key', 'created', 'updated', 'type', 'state', 'data', 'history']
+        cols = ['project', 'number', 'key', 'created',
+                'updated', 'type', 'state', 'history']
         for fkey, fval in fields.items():
             cols.append(f"data->'fields'->'{fkey}' as \"{fval}\"")
 
         jql = ""
         if kwargs.get('projects'):
-            if len(kwargs['projects']) > 1:
-                raise Exception("can't handle mutli-projects yet")
-            projects = kwargs['projects']
-            jql += f"project={projects[0]}"
+            # if len(kwargs['projects']) > 1:
+            #    raise Exception("can't handle mutli-projects yet")
+            # projects = kwargs['projects']
+            # jql += f"project={projects[0]}"
+            clauses = [f"project='{x}'" for x in kwargs['projects']]
+            clause = " OR ".join(clauses)
+            jql = "jql_scheme=2 " + clause
+            # import epdb; epdb.st()
         qs = query_parse(jql, {}, cols=cols)
         if kwargs.get('limit'):
             qs += f" LIMIT {kwargs['limit']}"
@@ -528,7 +547,7 @@ class StatsWrapper:
             for row in cur.fetchall():
                 counter += 1
                 ds = {}
-                for idx,x in enumerate(row):
+                for idx, x in enumerate(row):
                     ds[colnames[idx]] = x
                 rows.append(ds)
 
@@ -543,19 +562,6 @@ class StatsWrapper:
 
             its = issue['updated'].isoformat().split('.')[0]
 
-            '''
-            for k,v in fields.items():
-                if k in issue['data']['fields'] and issue['data']['fields'][k]:
-                    field = field_normal_map.get(k, k)
-                    for item in issue['data']['fields'][k]:
-                        if isinstance(item, str):
-                            version = item
-                        else:
-                            version = item['name']
-                        vevents.append(VersionEvent(
-                            issue['key'], issue['project'], issue['number'], issue['type'], its, field, version
-                        ))
-            '''
             for fkey, field_name in fields.items():
                 fname = field_normal_map.get(fkey, fkey)
                 field_val = issue[field_name]
@@ -592,7 +598,8 @@ class StatsWrapper:
                     if 'fix' in event.get('field', '').lower():
                         version = event['toString']
 
-                        field = field_normal_map.get(event['field'], event['field'])
+                        field = field_normal_map.get(
+                            event['field'], event['field'])
 
                         vevents.append(VersionEvent(
                             issue['key'],
@@ -605,125 +612,120 @@ class StatsWrapper:
                         ))
                     else:
                         if event.get('field') in fields or event.get('field') in list(fields.values()):
-                            import epdb; epdb.st()
+                            import epdb
+                            epdb.st()
 
-        print("filtering and sorting events ...")
+        # trim to relevant events
         vevents = [x for x in vevents if 'fix' in x.field.lower()]
-        vevents = sorted(vevents, key=lambda x: (x.project, x.number, x.ts))
 
-        print("make a list of versions and timestamps ...")
-        versions = set()
-        timestamps = set()
-        for vevent in vevents:
-            versions.add(vevent.version)
-            timestamps.add(vevent.ts)
+        # sort on time
+        vevents = sorted(vevents, key=lambda x: x.ts)
 
-        print("build datastructures ...")
-        vkeys = dict((x,set()) for x in versions if x is not None)
-        bvkeys = list(vkeys.keys())
-        buckets = OrderedDict()
-        for ts in sorted(list(timestamps)):
-            buckets[ts] = copy.deepcopy(vkeys)
+        # Step 2: Maintain state and accumulate data
+        version_dict = defaultdict(lambda: defaultdict(int))
+        current_versions = {}
 
-        print("walking through events and filling out buckets ...")
-        btimestamps = sorted(list(buckets.keys()))
-        for vevent in vevents:
+        # Accumulate timestamps
+        print('accumulating timestamps ...')
+        timestamps = sorted(set(event.ts for event in vevents))
+        for ts in timestamps:
+            for event in vevents:
+                if event.ts == ts:
+                    if event.version is not None:
+                        current_versions[event.key] = event.version
+                    elif event.key in current_versions:
+                        del current_versions[event.key]
 
-            v = vevent.version
-            related_timestamps = [x for x in btimestamps if x >= vevent.ts]
+            # Propagate current state to the version_dict
+            for key, version in current_versions.items():
+                version_dict[ts][version] += 1
 
-            if v == None:
-                #print(f'remove {vevent.key} from >= {ts} all versions')
-                for rts in related_timestamps:
-                    for bv in bvkeys:
-                        if vevent.key in buckets[rts][bv]:
-                            #print(f'remove {vevent.key} from >= {ts} all versions')
-                            buckets[rts][bv].remove(vevent.key)
-                            #pass
-            else:
-                #print(f'add {vevent.key} to >= {ts} to {vevent.version} and remove from all others')
-                for rts in related_timestamps:
-                    for bv in bvkeys:
-                        if bv == vevent.version:
-                            #print(f'add {vevent.key} to {rts} {bv}')
-                            buckets[rts][bv].add(vevent.key)
-                        elif vevent.key in buckets[rts][bv]:
-                            buckets[rts][bv].remove(vevent.key)
+        # Step 3: Create a dataframe
+        data = defaultdict(dict)
 
-        '''
-        trimmed = OrderedDict()
-        for k,v in buckets.items():
-            has_items = False
-            for k2,v2 in v.items():
-                if len(list(v2)) > 0:
-                    has_items = True
-                    break
-            if has_items:
-                trimmed[k] = v
-        '''
-
-        print("counting keys ...")
-        for ts,vmap in buckets.items():
-            for vkey, vtickets in vmap.items():
-                buckets[ts][vkey] = len(list(vtickets))
-
-        print("making records ...")
-        records = []
-        for date, versions in buckets.items():
+        print('accumulating data ...')
+        for ts, versions in version_dict.items():
             for version, count in versions.items():
-                records.append({"date": date, "version": version, "count": count})
+                data[ts][version] = count
 
-        print("make dataframe ...")
-        df = pd.DataFrame(records)
+        print('making dataframe ...')
+        df = pd.DataFrame.from_dict(
+            data, orient='index').fillna(0).sort_index()
 
-        print("convert dates ...")
-        df['date'] = pd.to_datetime(df['date'])
+        # Step 4: Sort columns by name
+        print('sort dataframe columns ...')
+        df = df.sort_index(axis=1)
 
-        '''
-        #grouped_df = df.groupby([df['date'].dt.date, 'version']).sum().reset_index()
-        grouped_df = df.groupby([df['date'].dt.date, 'version'])['count'].sum().reset_index()
-        '''
+        # Step 5: Filter out columns that don't start with a digit
+        print('trim irrelevant columns ...')
+        df = df[[col for col in df.columns if re.match(r'^\d', col)]]
+        df = df[[col for col in df.columns if re.match(r'^(1|2)', col)]]
 
-        print("pivoting ...")
-        pivot_df = df.pivot_table(
-            index=df['date'].dt.date, columns='version', values='count', aggfunc='sum'
-        ).reset_index()
+        # Step 6: Convert the index to datetime and group by month
+        print('set df index to datetime ...')
+        df.index = pd.to_datetime(df.index)
 
-        #pivot_df.columns.name = None
-        #pivot_df.columns = [str(col) for col in pivot_df.columns]
+        print('resample df by month ...')
+        # df = df.resample('M').sum()
+        df = df.resample('ME').last()
 
-        print('DONE')
-        import epdb; epdb.st()
+        # trim down to the user's defined versions
+        if kwargs.get('versions'):
+            allowed_versions = kwargs['versions'][:]
+            colnames = [x for x in df.columns]
+            to_drop = []
+            for cn in colnames:
+                if cn not in allowed_versions:
+                    to_drop.append(cn)
+            if to_drop:
+                print(f'dropping {to_drop}')
+                df = df.drop(columns=to_drop)
+        else:
+            # delete versions that never had issues ...
+            df = df.loc[:, (df != 0).any(axis=0)]
 
+        # delete irrelevant leading history ...
+        try:
+            first_non_zero_index = df[(df != 0).any(axis=1)].index[0]
+            df = df.loc[first_non_zero_index:]
+        except IndexError as e:
+            pass
 
+        # import epdb; epdb.st()
+        return df.to_json(date_format='iso', indent=2)
 
 
 def main():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--project', help='which project to make stats for', action="append", dest="projects")
+    parser.add_argument(
+        '--project', help='which project to make stats for', action="append", dest="projects")
+    parser.add_argument(
+        '--version', help='which version to make stats for', action="append", dest="versions")
     parser.add_argument('--field', action="append", dest="fields")
-    parser.add_argument('--frequency', choices=['monthly', 'weekly', 'daily'], default='monthly')
+    parser.add_argument(
+        '--frequency', choices=['monthly', 'weekly', 'daily'], default='monthly')
     parser.add_argument('--start', help='start date YYY-MM-DD')
     parser.add_argument('--end', help='end date YYY-MM-DD')
     parser.add_argument('--jql', help='issue selection JQL')
     parser.add_argument('--limit', type=int, help='reduce the total processed')
-    parser.add_argument('action', choices=['burndown', 'churn', 'stats_report', 'fix_versions_burndown'])
+    parser.add_argument('action', choices=[
+                        'burndown', 'churn', 'stats_report', 'fix_versions_burndown'])
 
     args = parser.parse_args()
-    kwargs= {
+    kwargs = {
         'projects': args.projects,
         'frequency': args.frequency,
-        #'fields': args.fields,
+        # 'fields': args.fields,
         'start': args.start,
         'end': args.end,
         'jql': args.jql,
         'limit': args.limit,
+        'versions': args.versions,
     }
     sw = StatsWrapper()
     func = getattr(sw, args.action)
     pprint(func(**kwargs))
-
 
 
 if __name__ == "__main__":

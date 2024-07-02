@@ -47,7 +47,7 @@ def root():
 
 @app.route('/ui')
 def ui():
-    #return render_template('main.html')
+    # return render_template('main.html')
     return redirect('/ui/issues')
 
 
@@ -63,15 +63,15 @@ def ui_issues_key(issue_key):
     rows = []
     with conn.cursor() as cur:
         cols = ','.join(ISSUE_COLUMN_NAMES)
-        #sql = f'SELECT {cols} FROM jira_issues WHERE key=%s'
+        # sql = f'SELECT {cols} FROM jira_issues WHERE key=%s'
         sql = f'SELECT * FROM jira_issues WHERE key=%s'
         cur.execute(sql, (issue_key,))
         results = cur.fetchall()
         colnames = [x[0] for x in cur.description]
         for row in results:
             ds = {}
-            #for idx,x in enumerate(ISSUE_COLUMN_NAMES):
-            for idx,x in enumerate(colnames):
+            # for idx,x in enumerate(ISSUE_COLUMN_NAMES):
+            for idx, x in enumerate(colnames):
                 ds[x] = row[idx]
             rows.append(ds)
 
@@ -92,7 +92,7 @@ def ui_issues_key(issue_key):
         issue_description = ''
         issue_description_raw = ''
 
-    #formatted_description = jira_description_to_html(issue_description)
+    # formatted_description = jira_description_to_html(issue_description)
     formatted_desc = render_jira_markup(issue_description)
 
     return render_template(
@@ -146,6 +146,11 @@ def ui_fix_versions():
     return render_template('fix_versions.html')
 
 
+@app.route('/ui/fix_version_history')
+def ui_fix_versions_history():
+    return render_template('fix_versions_burndown.html')
+
+
 @app.route('/ui/timeline')
 def ui_timeline():
     return render_template('timeline.html')
@@ -156,7 +161,8 @@ def projects():
 
     projects = []
     with conn.cursor() as cur:
-        cur.execute(f"SELECT DISTINCT(project) FROM jira_issues ORDER BY project")
+        cur.execute(
+            f"SELECT DISTINCT(project) FROM jira_issues ORDER BY project")
         results = cur.fetchall()
         for row in results:
             projects.append(row[0])
@@ -172,15 +178,15 @@ def api_ticket(issue_key):
     rows = []
     with conn.cursor() as cur:
         cols = ','.join(ISSUE_COLUMN_NAMES)
-        #sql = f'SELECT {cols} FROM jira_issues WHERE key=%s'
+        # sql = f'SELECT {cols} FROM jira_issues WHERE key=%s'
         sql = f'SELECT * FROM jira_issues WHERE key=%s'
         cur.execute(sql, (issue_key,))
         results = cur.fetchall()
         colnames = [x[0] for x in cur.description]
         for row in results:
             ds = {}
-            #for idx,x in enumerate(ISSUE_COLUMN_NAMES):
-            for idx,x in enumerate(colnames):
+            # for idx,x in enumerate(ISSUE_COLUMN_NAMES):
+            for idx, x in enumerate(colnames):
                 ds[x] = row[idx]
             rows.append(ds)
 
@@ -235,7 +241,7 @@ def tickets():
         field_map = dict((x['id'], x) for x in field_map)
         '''
 
-        #sql = query_parse(query, cols=cols, field_map=field_map, debug=True)
+        # sql = query_parse(query, cols=cols, field_map=field_map, debug=True)
         sql = query_parse(query, cols=cols, debug=True)
 
     else:
@@ -250,7 +256,7 @@ def tickets():
         WHERE = f"WHERE project = '{project}' AND state != 'Closed'"
         sql = f"SELECT {','.join(cols)} FROM jira_issues {WHERE}"
         '''
-        #return jsonify(request.args)
+        # return jsonify(request.args)
 
         kwargs = dict(request.args)
 
@@ -265,7 +271,7 @@ def tickets():
                 qs += f"{key}={val}"
             else:
                 qs += f" AND {key}={val}"
-        #if not qs and not "project" in request.args:
+        # if not qs and not "project" in request.args:
         #    qs += " project=AAH"
         if "state" not in kwargs and "status" not in kwargs:
             if not qs:
@@ -274,8 +280,7 @@ def tickets():
                 qs += " AND status!=Closed"
 
         sql = query_parse(qs, cols=cols, debug=True)
-        #return jsonify({"qs": qs, "sql": sql})
-
+        # return jsonify({"qs": qs, "sql": sql})
 
     print(f'SQL: {sql}')
     filtered = []
@@ -291,8 +296,8 @@ def tickets():
 
             for row in results:
                 ds = {}
-                #for idc,colname in enumerate(cols):
-                for idc,colname in enumerate(desc_cols):
+                # for idc,colname in enumerate(cols):
+                for idc, colname in enumerate(desc_cols):
 
                     ds[colname] = row[idc]
                     if colname in ['created', 'updated']:
@@ -329,7 +334,7 @@ def api_tickets_parents():
     }
 
     sql = "SELECT key,type"
-    for k,v in fmap.items():
+    for k, v in fmap.items():
         sql += ',' + f"data->'fields'->>'{v}' {k}"
     sql += " from jira_issues"
     if request.args.get('project'):
@@ -345,7 +350,7 @@ def api_tickets_parents():
 
         for row in results:
             ds = {}
-            for idc,colname in enumerate(cols):
+            for idc, colname in enumerate(cols):
                 ds[colname] = row[idc]
 
                 # is it json?
@@ -378,14 +383,14 @@ def api_acceptance_criteria():
 
         for row in results:
             ds = {}
-            for idc,colname in enumerate(cols):
+            for idc, colname in enumerate(cols):
                 ds[colname] = row[idc]
             rows.append(ds)
 
     final_rows = []
     for row in rows:
         criteria = split_acceptance_criteria(row['acceptance_criteria'])
-        for idc,crit in enumerate(criteria):
+        for idc, crit in enumerate(criteria):
             ds = copy.deepcopy(row)
             ds['criteria_id'] = idc
             ds['acceptance_criteria'] = crit
@@ -397,7 +402,6 @@ def api_acceptance_criteria():
 @app.route('/api/labels')
 @app.route('/api/labels/')
 def api_labels():
-
     '''
     sql = "SELECT project,key,summary,state,data->'fields'->>'labels' acceptance_criteria"
     sql += " from jira_issues"
@@ -419,7 +423,7 @@ def api_labels():
     if clauses:
         sql += ' WHERE '
         statements = []
-        for k,v in clauses.items():
+        for k, v in clauses.items():
             for _v in v:
                 statement = f"{k}{_v[0]}'{_v[1]}'"
                 statements.append(statement)
@@ -437,7 +441,7 @@ def api_labels():
 
         for row in results:
             ds = {}
-            for idc,colname in enumerate(cols):
+            for idc, colname in enumerate(cols):
                 ds[colname] = row[idc]
             rows.append(ds)
 
@@ -447,7 +451,6 @@ def api_labels():
 @app.route('/api/components')
 @app.route('/api/components/')
 def api_components():
-
     '''
     sql = "SELECT project,key,summary,state,data->'fields'->>'labels' acceptance_criteria"
     sql += " from jira_issues"
@@ -464,7 +467,7 @@ def api_components():
     GROUP BY component
     ORDER BY count DESC;
     '''
-    #sql = "select component,COUNT(component) count from jira_issues,jsonb_array_elements(data->'fields'->'components')->>'name' AS component"
+    # sql = "select component,COUNT(component) count from jira_issues,jsonb_array_elements(data->'fields'->'components')->>'name' AS component"
     sql = '''SELECT components->>'name' AS component, COUNT(components->>'name') AS count
     FROM jira_issues, LATERAL jsonb_array_elements(data->'fields'->'components') AS components'''
 
@@ -478,7 +481,7 @@ def api_components():
     if clauses:
         sql += ' WHERE '
         statements = []
-        for k,v in clauses.items():
+        for k, v in clauses.items():
             for _v in v:
                 statement = f"{k}{_v[0]}'{_v[1]}'"
                 statements.append(statement)
@@ -496,7 +499,7 @@ def api_components():
 
         for row in results:
             ds = {}
-            for idc,colname in enumerate(cols):
+            for idc, colname in enumerate(cols):
                 ds[colname] = row[idc]
             rows.append(ds)
 
@@ -506,7 +509,6 @@ def api_components():
 @app.route('/api/fix_versions')
 @app.route('/api/fix_versions/')
 def api_fix_versions():
-
     '''
     sql = "SELECT project,key,summary,state,data->'fields'->>'labels' acceptance_criteria"
     sql += " from jira_issues"
@@ -528,7 +530,7 @@ def api_fix_versions():
     if clauses:
         sql += ' WHERE '
         statements = []
-        for k,v in clauses.items():
+        for k, v in clauses.items():
             for _v in v:
                 statement = f"{k}{_v[0]}'{_v[1]}'"
                 statements.append(statement)
@@ -546,7 +548,7 @@ def api_fix_versions():
 
         for row in results:
             ds = {}
-            for idc,colname in enumerate(cols):
+            for idc, colname in enumerate(cols):
                 ds[colname] = row[idc]
             rows.append(ds)
 
@@ -557,7 +559,7 @@ def api_fix_versions():
 @app.route('/api/tickets_tree/')
 def tickets_tree():
 
-    #show_closed = request.args.get('closed') in ['false', 'False', '0']
+    # show_closed = request.args.get('closed') in ['false', 'False', '0']
     show_closed = request.args.get('closed') in ['true', 'True', '1']
     show_progress = request.args.get('progress') in ['true', 'True', '1']
     filter_key = request.args.get('key')
@@ -576,14 +578,14 @@ def tickets_tree():
 @app.route('/api/ticket_child_tree/<issue_key>')
 def ticket_child_tree(issue_key):
 
-    #show_closed = request.args.get('closed') in ['false', 'False', '0']
-    #show_progress = request.args.get('progress') in ['true', 'True', '1']
-    #filter_key = request.args.get('key')
-    #filter_project = request.args.get('project')
+    # show_closed = request.args.get('closed') in ['false', 'False', '0']
+    # show_progress = request.args.get('progress') in ['true', 'True', '1']
+    # filter_key = request.args.get('key')
+    # filter_project = request.args.get('project')
 
     imap = make_child_tree(
         filter_key=issue_key,
-        #filter_project=filter_project,
+        # filter_project=filter_project,
         show_closed=True,
         map_progress=True
     )
@@ -596,7 +598,7 @@ def ticket_child_tree(issue_key):
 def tickets_burndown():
 
     projects = request.args.getlist("project")
-    #if not projects:
+    # if not projects:
     #    return redirect('/api/tickets_burndown/?project=AAH')
 
     jql = request.args.get('jql')
@@ -619,6 +621,34 @@ def tickets_burndown():
     return jsonify(data)
 
 
+@app.route('/api/fixversion_burndown')
+@app.route('/api/fixversion_burndown/')
+def fixversion_burndown():
+
+    projects = request.args.getlist("project")
+    versions = request.args.getlist("version")
+
+    jql = request.args.get('jql')
+    print(f'JQL: {jql}')
+
+    start = request.args.get('start')
+    end = request.args.get('end')
+    frequency = request.args.get('frequency', 'monthly')
+
+    sw = StatsWrapper()
+    data = sw.fix_versions_burndown(
+        projects=projects,
+        frequency=frequency,
+        start=start,
+        end=end,
+        jql=jql,
+        versions=versions or None
+    )
+    data = json.loads(data)
+
+    return jsonify(data)
+
+
 @app.route('/api/tickets_churn')
 @app.route('/api/tickets_churn/')
 def tickets_churn():
@@ -634,9 +664,10 @@ def tickets_churn():
     end = request.args.get('end')
 
     sw = StatsWrapper()
-    data = sw.churn(projects, frequency='monthly', fields=fields, start=start, end=end)
-    #data = sw.burndown('AAH', frequency='monthly')
-    #data = sw.burndown('AAH', frequency='weekly')
+    data = sw.churn(projects, frequency='monthly',
+                    fields=fields, start=start, end=end)
+    # data = sw.burndown('AAH', frequency='monthly')
+    # data = sw.burndown('AAH', frequency='weekly')
     data = json.loads(data)
     '''
     keys = list(data.keys())
@@ -659,7 +690,7 @@ def api_tickets_timeline():
     assignee = request.args.get('assignee')
     state = request.args.get('state')
 
-    #project = 'AAH'
+    # project = 'AAH'
     project = None
     if projects:
         project = projects[0]
@@ -691,8 +722,6 @@ def ticket_refresh():
     jw.number = number
     jw.scrape(project=project, number=number, full=True)
     return jsonify({})
-
-
 
 
 if __name__ == '__main__':
