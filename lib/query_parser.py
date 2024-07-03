@@ -96,6 +96,17 @@ def query_parse(query, field_map=FIELD_MAP, cols=None, debug=False):
                 ')'
             )
 
+        elif operator != '=' and _col == 'components':
+
+            clause = (
+                'EXISTS ('
+                '   SELECT 1'
+                "   FROM jsonb_array_elements(data->'fields'->'components') AS component(component_element)"
+                f"   WHERE component_element->>'name' != '{v}'"
+                ')'
+            )
+
+
         elif operator == '~':
             clause = f"{col} LIKE '%{v}%'"
 
