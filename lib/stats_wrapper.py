@@ -172,12 +172,10 @@ class StatsWrapper:
             placeholders_2 = []
             if projects:
                 for project in projects:
-                    _qs = f"(data->>'toString' like '{
-                        project}-%' OR data->>'fromString' like '{project}-%')"
+                    _qs = f"(data->>'toString' like '{project}-%' OR data->>'fromString' like '{project}-%')"
                     placeholders_2.append(_qs)
 
-            qs = f'SELECT created,data,project,key FROM jira_issue_events WHERE (({
-                where_clause})'
+            qs = f'SELECT created,data,project,key FROM jira_issue_events WHERE (({where_clause})'
             qs += " AND (data->>'field' = 'Key' OR (data->>'field' = 'status' AND ( data->>'toString'='New' OR data->>'toString'='Closed' ))))"
             if placeholders_2:
                 qs += " OR "
@@ -374,8 +372,7 @@ class StatsWrapper:
             for project in projects:
                 placeholders.append('%s')
             where_clause = "project = " + " OR project = ".join(placeholders)
-            qs = f"SELECT created,data->>'field' AS field_name FROM jira_issue_events WHERE {
-                where_clause}"
+            qs = f"SELECT created,data->>'field' AS field_name FROM jira_issue_events WHERE {where_clause}"
             with self.conn.cursor() as cur:
                 cur.execute(qs, (projects))
                 for row in cur.fetchall():
