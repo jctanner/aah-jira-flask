@@ -81,8 +81,7 @@ class StatsWrapper:
             for project in projects:
                 placeholders.append('%s')
             where_clause = "project = " + " OR project = ".join(placeholders)
-            qs = f'SELECT project,number,state,created,updated,data FROM jira_issues WHERE {
-                where_clause}'
+            qs = f'SELECT project,number,state,created,updated,data FROM jira_issues WHERE {where_clause}'
 
         with self.conn.cursor() as cur:
             if jql:
