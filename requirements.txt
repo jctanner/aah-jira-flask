@@ -27,3 +27,4 @@ PyGithub
 
 psycopg
 matplotlib
+GitPython
